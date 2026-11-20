@@ -5,6 +5,7 @@ and tool call) to Cloud Trace using GOOGLE_CLOUD_PROJECT. Run it with:
     python -m uvicorn main:app --host 0.0.0.0 --port 8080
 """
 
+import os
 from pathlib import Path
 
 from agents.pebble_support.logs import configure_logging
@@ -16,7 +17,9 @@ configure_logging()
 app = get_fast_api_app(
     agents_dir=str(Path(__file__).parent / "agents"),
     web=False,  # no dev UI on a public URL
-    trace_to_cloud=True,
+    # On by default. The repo's import smoke test sets TRACE_TO_CLOUD=false,
+    # because exporting to Cloud Trace needs credentials at startup.
+    trace_to_cloud=os.getenv("TRACE_TO_CLOUD", "true").lower() != "false",
     max_llm_calls=MAX_LLM_CALLS,
     use_local_storage=False,  # sessions in memory; the container filesystem is not durable
     auto_create_session=True,  # first /run call for a session id creates it

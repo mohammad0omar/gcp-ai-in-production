@@ -30,7 +30,7 @@ if [ -f "$folder/Dockerfile" ]; then
     (cd "$folder" && GOOGLE_CLOUD_PROJECT=smoke-test "$tmp/venv/bin/python" -c "import app.main")
   elif [ -f "$folder/uv.lock" ] && [ -f "$folder/main.py" ]; then
     (cd "$folder" && UV_PROJECT_ENVIRONMENT="$tmp/venv" uv sync -q --frozen --no-dev --no-install-project \
-      && GOOGLE_CLOUD_PROJECT=smoke-test "$tmp/venv/bin/python" -c "import main")
+      && GOOGLE_CLOUD_PROJECT=smoke-test TRACE_TO_CLOUD=false "$tmp/venv/bin/python" -c "import main")
   fi
   rm -rf "$tmp"
   echo "runtime import smoke test passed"
