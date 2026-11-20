@@ -62,7 +62,7 @@ jobs:
             exit 1
           fi
 
-      # --no-allow-unauthenticated removes any public binding; --invoker-iam-check turns the
+      # --no-allow-unauthenticated removes the service-level allUsers grant; --invoker-iam-check turns the
       # Invoker check back on in case someone disabled it. The service stays private.
       - name: Deploy to Cloud Run
         run: |
