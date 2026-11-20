@@ -64,7 +64,7 @@ Safe test habits: keep the first run to a few minutes, set a budget alert, delet
 
 ```bash
 PROJECT=YOUR_PROJECT_ID bash deploy/delete_gemma.sh
-gcloud run services list --project YOUR_PROJECT_ID   # confirm coral-gemma-loadtest is gone
+gcloud run services list --project YOUR_PROJECT_ID --region us-central1   # confirm coral-gemma-loadtest is gone
 ```
 
 This deletes the Cloud Run service, and the `coral-gemma-runtime` service account only if `deploy_gemma.sh` created it (the marker file `deploy/.created_service_account`). An account the script did not create is never deleted or attached. The account is removed even when the service delete fails. If you changed `REGION` or `SERVICE`, pass the same values. Stop the proxy with Ctrl-C. Delete `results/` if you do not want the numbers. Restore credentials you changed: `gcloud auth application-default revoke` removes the ADC login from step 8. If you enabled the APIs only for this test, you can turn them off with `gcloud services disable run.googleapis.com aiplatform.googleapis.com iam.googleapis.com`; leave them on if anything else uses them.

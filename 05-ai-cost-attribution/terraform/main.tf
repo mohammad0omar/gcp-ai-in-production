@@ -70,7 +70,7 @@ resource "google_logging_project_sink" "ai_usage" {
 # access list, like the authorized views below, so the two never overwrite each other.
 resource "google_bigquery_dataset_access" "sink_writer" {
   dataset_id = google_bigquery_dataset.usage_logs.dataset_id
-  role       = "roles/bigquery.dataEditor"
+  role       = "WRITER"
   iam_member = google_logging_project_sink.ai_usage.writer_identity
 }
 

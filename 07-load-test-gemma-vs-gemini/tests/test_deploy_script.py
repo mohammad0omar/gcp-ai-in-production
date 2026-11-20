@@ -44,3 +44,4 @@ def test_service_account_is_deleted_only_if_the_script_created_it():
     # The account goes only after the service delete succeeded and the service is confirmed gone.
     assert delete.index("services describe") < delete.index("service-accounts delete")
     assert 'if [ "$status" -ne 0 ]' in delete
+    assert "NOT_FOUND" in delete  # only a not-found answer proves the service is gone

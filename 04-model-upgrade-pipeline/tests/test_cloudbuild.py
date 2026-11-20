@@ -41,13 +41,15 @@ def render(text: str) -> str:
     return text.replace("\0", "$")
 
 
-def run_step(step_id, tmp_path, fake, marker=False):
+def run_step(step_id, tmp_path, fake, marker=False, healthy=False):
     work = tmp_path / "workspace"
     work.mkdir()
     (work / "previous_revision").write_text("svc-00001\n")
     (work / "candidate.txt").write_text("svc-cabcdef12\n")
     if marker:
         (work / "canary_failed").write_text("failed\n")
+    if healthy:
+        (work / "canary_ok").write_text("ok\n")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     gcloud = bin_dir / "gcloud"
@@ -135,8 +137,14 @@ def test_failed_describe_during_rollback_is_reported(tmp_path):
 
 
 def test_no_rollback_when_canary_is_healthy(tmp_path):
-    result, calls = run_step("rollback-if-failed", tmp_path, {}, marker=False)
+    result, calls = run_step("rollback-if-failed", tmp_path, {}, healthy=True)
     assert result.returncode == 0 and calls == ""
+
+
+def test_missing_markers_mean_rollback(tmp_path):
+    # The watch step died before writing any marker: that must not count as healthy.
+    result, calls = run_step("rollback-if-failed", tmp_path, {"FAKE_SPLIT": "svc-00001 100 "})
+    assert result.returncode == 1 and "--to-revisions svc-00001=100" in calls
 
 
 def test_promote_refuses_when_the_split_changed(tmp_path):

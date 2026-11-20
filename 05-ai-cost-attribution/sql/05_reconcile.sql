@@ -19,7 +19,8 @@ SELECT
 FROM spend;
 
 -- Per-SKU breakdown of everything the filter leaves out, charges and credits apart.
--- Run it when cost_missing_from_filter is not zero, then add the SKU ids you want to 02.
+-- Run it every time, not only when cost_missing_from_filter is not zero: excluded charges and
+-- credits can cancel exactly. Then add the SKU ids you want to 02.
 SELECT
   sku.id AS sku_id,
   sku.description AS sku_description,

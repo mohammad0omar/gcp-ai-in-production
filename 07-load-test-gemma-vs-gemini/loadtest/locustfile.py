@@ -33,7 +33,7 @@ PROMPT = (
 MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "128"))
 # Time limits are NOT one hard wall-clock cutoff. Gemma: a 10 second timeout on each read plus a
 # check against the 60 second deadline between chunks. Gemini: the SDK's 60 second HTTP timeout
-# plus the same between-chunk check. A request can overrun 60 seconds by up to one read.
+# plus the same between-chunk check. A request can overrun 60 seconds, because one parsed line or chunk can take several reads.
 STREAM_DEADLINE_S = 60.0
 READ_TIMEOUT_S = 10.0
 

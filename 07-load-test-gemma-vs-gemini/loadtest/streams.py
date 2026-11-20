@@ -6,6 +6,7 @@ Gemini answer are failures, not fast successes. Pure functions: tests feed them 
 """
 
 import json
+import re
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -15,10 +16,12 @@ GEMINI_OK_FINISH = {"STOP", "MAX_TOKENS"}
 GEMMA_OK_FINISH = {"stop", "length"}
 
 
+TAGS = re.compile(r"category:\s*\w+.*urgency:\s*(low|medium|high)\b", re.IGNORECASE | re.DOTALL)
+
+
 def has_valid_tags(text: str) -> bool:
-    """The prompt asks for a category and an urgency. An answer without both is not a tagged ticket."""
-    lowered = text.lower()
-    return "category" in lowered and "urgency" in lowered
+    """The prompt asks for "Category: <word>. Urgency: <low, medium or high>". Anything else is not a tagged ticket."""
+    return TAGS.search(text) is not None
 
 
 @dataclass

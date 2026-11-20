@@ -62,7 +62,7 @@ def gemini_chunk(text="", finish=None, visible=None, thoughts=None):
 
 
 def test_gemini_success_counts_thinking_as_billed_not_visible():
-    chunks = [gemini_chunk("Category: a."), gemini_chunk(" Urgency: b.", "STOP", visible=10, thoughts=30)]
+    chunks = [gemini_chunk("Category: a."), gemini_chunk(" Urgency: low.", "STOP", visible=10, thoughts=30)]
     result = read_gemini_stream(chunks, 1e9, Clock())
     assert result.ok and result.visible_tokens == 10 and result.billed_tokens == 40
 
@@ -96,3 +96,12 @@ def test_gemma_bad_finish_reason_or_missing_tags_is_failure():
 def test_gemini_missing_tags_is_failure():
     result = read_gemini_stream([gemini_chunk("I cannot tag this.", "STOP", visible=5, thoughts=0)], 1e9, Clock())
     assert not result.ok and "category and urgency" in result.error
+
+
+def test_has_valid_tags_needs_both_values():
+    from loadtest.streams import has_valid_tags
+
+    assert has_valid_tags("Category: billing. Urgency: High.")
+    assert not has_valid_tags("Category: billing. Urgency:")
+    assert not has_valid_tags("Category: billing. Urgency: soon.")
+    assert not has_valid_tags("Urgency: low.")

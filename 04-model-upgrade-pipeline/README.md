@@ -22,7 +22,7 @@ gcloud builds submit (Cloud Build)
 
 ## Steps
 
-You need a billable project, `gcloud` and Python 3.12. These steps change your project. Run them yourself. Replace `YOUR_PROJECT_ID` and set the variables once. Run everything from this folder (`.gcloudignore` keeps `.venv`, credentials and caches out of the uploaded source):
+You need a billable project, `gcloud` and Python 3.12. These steps change your project. Run them yourself. Replace `YOUR_PROJECT_ID` and set the variables once. Run everything from this folder (`.gcloudignore` keeps `.venv`, caches and a few credential file patterns such as `*.pem` and `credentials*.json` out of the uploaded source; keep any other credential file, for example a key saved as `key.json`, outside this folder):
 
 ```bash
 cd 04-model-upgrade-pipeline
@@ -78,7 +78,7 @@ gcloud config set project $PROJECT_ID
      --substitutions=_CANDIDATE_MODEL=gemini-3.8-flash,_REGION=$REGION .
    ```
    Other substitutions: `_EVAL_THRESHOLD` (0.9), `_WATCH_MINUTES` (10), `_MAX_ERROR_RATE` (0.02). The build validates all of them first.
-9. While the `watch` step runs (about 13 minutes: the watch plus 3 minutes for metrics to arrive), send the candidate at least 20 requests. `builds submit` waits for the build, so run this in a second terminal, or add `--async` to step 8 and follow the build in the console. The tag URL (it points to the candidate while only this run exists) is the service URL with `candidate---` in front of the host:
+9. While the `watch` step runs (about 13 minutes: the watch plus 3 minutes for metrics to arrive), send the candidate at least 20 requests. `builds submit` waits for the build, so run this in a second terminal (set `PROJECT_ID` and `REGION` there again first), or add `--async` to step 8 and follow the build in the console. The tag URL (it points to the candidate while only this run exists) is the service URL with `candidate---` in front of the host:
    ```bash
    URL=$(gcloud run services describe itinerary-summariser --region $REGION --format='value(status.url)')
    CANDIDATE_URL=${URL/https:\/\//https://candidate---}

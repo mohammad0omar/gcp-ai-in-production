@@ -57,7 +57,8 @@ def save_needs_review(
     message_id: str, reason: str, redacted_text: str | None, source: dict
 ) -> bool:
     # Only redacted text is ever stored, and not even that when DLP may have missed something.
-    # `source` (subscription, message id, publish time) lets a person find the original in the
-    # dead letter or push subscription while it is retained, without storing the email here.
+    # `source` (subscription, message id, publish time) identifies the delivery for audit. The
+    # 200 acknowledges it, so Pub/Sub does not keep the email: keep a reference to your own
+    # source inbox if a person must be able to fetch the original.
     data = {"reason": reason, "redacted_text": redacted_text, "source": source}
     return _finish(NEEDS_REVIEW, message_id, data)

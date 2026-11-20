@@ -16,7 +16,10 @@ status=$?
 
 # Delete the account only after the service delete succeeded AND the service is confirmed gone;
 # a still-running service would lose its identity. If either check fails, run this script again.
-if [ "$status" -ne 0 ] || gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" >/dev/null 2>&1; then
+# Only a "not found" answer proves the service is gone; a permission or API error does not.
+DESCRIBE_OUT="$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" 2>&1)"
+describe_status=$?
+if [ "$status" -ne 0 ] || [ "$describe_status" -eq 0 ] || ! grep -qiE "not found|NOT_FOUND|cannot find service" <<<"$DESCRIBE_OUT"; then
   echo "Service ${SERVICE} is not confirmed deleted. Keeping the service account. Run this script again." >&2
   exit 1
 fi

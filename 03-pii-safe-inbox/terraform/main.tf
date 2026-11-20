@@ -85,7 +85,7 @@ resource "google_cloud_run_v2_service" "inbox" {
 
   template {
     service_account                  = google_service_account.runtime.email
-    max_instance_request_concurrency = 4      # explicit: each request waits on DLP and Gemini; 5 instances x 4 = 20 at once
+    max_instance_request_concurrency = 4      # explicit: each request waits on DLP and Gemini; about 20 at once, a target and not a hard cap
     timeout                          = "110s" # keep in step with REQUEST_TIMEOUT_S in ../config.py
 
     scaling {

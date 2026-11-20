@@ -34,6 +34,7 @@ Use a dedicated project for this tutorial, so cleanup is one command and cannot 
 
    ```bash
    export SALTMARSH_GCLOUD_DIR=$(mktemp -d)   # a throwaway gcloud config just for this tutorial
+   test -d "$SALTMARSH_GCLOUD_DIR" || echo "mktemp failed: STOP here, or login will overwrite your normal credentials"
    export CLOUDSDK_CONFIG=$SALTMARSH_GCLOUD_DIR
    unset GOOGLE_APPLICATION_CREDENTIALS  # it takes precedence over the ADC file, so it would hide the login below
    gcloud auth login
@@ -94,7 +95,7 @@ Model ids live in `config.py`. Check the [model list](https://docs.cloud.google.
 - Wait: random between 0 and min(30 s, 1 s * 2^(attempt-1)). A `Retry-After` header (seconds or HTTP date) replaces the random wait, and is also honoured before moving to the fallback model. If the wait would pass the deadline, `DeadlineExceeded` is raised.
 - Deadline: starts before the client is built. Each request's timeout is the time left. An answer or error that arrives after the deadline is replaced by `DeadlineExceeded`, including non-retryable errors. Client setup (credential lookup) counts against the budget but cannot be interrupted, and the SDK timeout applies to each network operation, so a very slow request can overrun the deadline a little before it is noticed.
 - `timeout_s` is a best-effort budget: each attempt gets the remaining time as its HTTP timeout, but a single slow read can overrun it by up to one read timeout, and a hard cancel would need a thread or an async task.
-- One attempt means one HTTP request: the library turns off the SDK's own retries and continuation follow-ups.
+- One attempt means one HTTP request to the generation endpoint (the SDK follows redirects by default, which this does not change): the library turns off the SDK's own retries and continuation follow-ups.
 - A client-side timeout leaves the server outcome unknown, so a retry after a timeout can produce a second billable generation.
 
 ## The global endpoint
@@ -126,10 +127,10 @@ Everything was created in the dedicated project, so delete it. This removes the 
 gcloud projects delete $PROJECT_ID
 ```
 
-Then undo the local changes. If you used a separate config directory in `SALTMARSH_GCLOUD_DIR`, delete it only if it is under the temp dir (the check below does that) and unset the variables; your own ADC was never touched:
+Then undo the local changes. If you used a separate config directory in `SALTMARSH_GCLOUD_DIR`, delete it only if it looks like the `mktemp` directory from step 3 (the check below does that) and unset the variables; your own ADC was never touched:
 
 ```bash
-case "$SALTMARSH_GCLOUD_DIR" in "${TMPDIR:-/tmp}"*) rm -rf "$SALTMARSH_GCLOUD_DIR" ;; *) echo "not a temp dir, not deleting" ;; esac
+case "$SALTMARSH_GCLOUD_DIR" in */tmp.*) rm -rf "$SALTMARSH_GCLOUD_DIR" ;; *) echo "not the directory made in step 3, not deleting" ;; esac
 unset SALTMARSH_GCLOUD_DIR CLOUDSDK_CONFIG GOOGLE_CLOUD_PROJECT PROJECT_ID
 ```
 

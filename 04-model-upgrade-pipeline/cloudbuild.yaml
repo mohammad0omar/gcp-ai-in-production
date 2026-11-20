@@ -133,13 +133,14 @@ steps:
       - -c
       - |
         set -uo pipefail
-        # Any failure here (crash, timeout, unhealthy canary) leaves the marker, so rollback runs.
+        # A failure here (crash, timeout, unhealthy canary) leaves no OK marker, so rollback runs.
         export PYTHONPATH=/workspace/pydeps  # installed by the test step, before traffic moved
         # The hard limit leaves the rest of the build timeout for the rollback.
         timeout "$$((WATCH_MINUTES * 60 + 300))" \
           python pipeline/watch_canary.py --project "$$PROJECT_ID" --service "$$SERVICE" --region "$$REGION" \
           --revision "$$(cat /workspace/candidate.txt)" --since "$$(cat /workspace/shift_epoch)" \
           --minutes "$$WATCH_MINUTES" --max-error-rate "$$MAX_ERROR_RATE" \
+          && echo ok > /workspace/canary_ok \
           || echo failed > /workspace/canary_failed
         exit 0
 
@@ -152,7 +153,8 @@ steps:
       - -c
       - |
         set -uo pipefail  # no -e on purpose: every failure below must reach a clear message
-        [ -f /workspace/canary_failed ] || { echo "Canary healthy, no rollback."; exit 0; }
+        # Healthy only when the watch wrote its OK marker and no failure marker. A missing marker means roll back.
+        if [ -f /workspace/canary_ok ] && [ ! -f /workspace/canary_failed ]; then echo "Canary healthy, no rollback."; exit 0; fi
         # Prints the revisions that carry traffic, as sorted "name percent;" items. Tag-only entries (0 or no
         # percent) are ignored, so a tag never counts as traffic.
         split_of() {
