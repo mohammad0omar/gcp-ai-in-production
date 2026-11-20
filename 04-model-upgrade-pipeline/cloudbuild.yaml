@@ -1,0 +1,195 @@
+# Gated model upgrade: validate, test, eval the candidate model, build, canary at 10%, watch, promote or roll back.
+# Run: gcloud builds submit --config cloudbuild.yaml (full command in README step 8).
+# Run ONE pipeline per service at a time (README explains why). Every step after the deploy uses the exact
+# revision NAME in /workspace/candidate.txt, never a tag or "latest".
+#
+# Substitutions are passed to scripts through env vars and read as "$$NAME" (double dollar: Cloud Build
+# turns it into a plain "$NAME" for Bash), never pasted into the shell source.
+substitutions:
+  _CANDIDATE_MODEL: gemini-3.8-flash
+  _SERVICE: itinerary-summariser
+  _REGION: europe-west1
+  _REPO: larkspur
+  _EVAL_THRESHOLD: "0.9"
+  _WATCH_MINUTES: "10"
+  _MAX_ERROR_RATE: "0.02"
+
+# Budget in seconds: steps before the watch are capped by their own timeouts (480+480+600+180+300+120 = 2160),
+# the watch is capped at 30 min + 3 min settle + 2 min = 2100, rollback needs a few minutes: about 4600 of 5400.
+timeout: 5400s
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$BUILD_ID
+
+steps:
+  - id: test
+    timeout: 480s
+    name: python:3.12-slim
+    entrypoint: bash
+    env: &inputs
+      - CANDIDATE_MODEL=${_CANDIDATE_MODEL}
+      - SERVICE=${_SERVICE}
+      - REGION=${_REGION}
+      - REPO=${_REPO}
+      - EVAL_THRESHOLD=${_EVAL_THRESHOLD}
+      - WATCH_MINUTES=${_WATCH_MINUTES}
+      - MAX_ERROR_RATE=${_MAX_ERROR_RATE}
+      - PROJECT_ID=$PROJECT_ID
+      - BUILD_ID=$BUILD_ID
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        python pipeline/validate_inputs.py
+        pip install -q -r app/requirements.txt -r pipeline/requirements.txt pytest httpx pyyaml
+        # Install the watcher's dependencies now, into the shared workspace, so nothing is installed after traffic moves.
+        pip install -q --target /workspace/pydeps -r pipeline/requirements.txt
+        PYTHONPATH=/workspace/pydeps python pipeline/watch_canary.py --help > /dev/null  # the watcher must start before traffic moves
+        pytest tests -q
+
+  - id: eval-candidate
+    timeout: 480s
+    name: python:3.12-slim
+    entrypoint: bash
+    env:
+      - GOOGLE_CLOUD_PROJECT=$PROJECT_ID
+      - CANDIDATE_MODEL=${_CANDIDATE_MODEL}
+      - EVAL_THRESHOLD=${_EVAL_THRESHOLD}
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        pip install -q -r app/requirements.txt
+        python eval/run_eval.py --model "$$CANDIDATE_MODEL" --golden eval/golden.jsonl --threshold "$$EVAL_THRESHOLD"
+
+  - id: build
+    timeout: 600s
+    name: gcr.io/cloud-builders/docker
+    args: [build, -t, "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$BUILD_ID", .]
+
+  - id: push
+    timeout: 180s
+    name: gcr.io/cloud-builders/docker
+    args: [push, "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$BUILD_ID"]
+
+  - id: deploy-candidate
+    timeout: 300s
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    env: *inputs
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        # Only continue from a clean state: one revision serving 100%. Anything else means another
+        # rollout is in progress or a rollback is needed by hand.
+        PCT0=$$(gcloud run services describe "$$SERVICE" --region "$$REGION" --format='value(status.traffic[0].percent)')
+        PCT1=$$(gcloud run services describe "$$SERVICE" --region "$$REGION" --format='value(status.traffic[1].percent)')
+        if [ "$$PCT0" != "100" ] || [ -n "$$PCT1" ]; then
+          echo "Traffic is not a single 100% revision. Finish or roll back the other rollout first."
+          exit 1
+        fi
+        gcloud run services describe "$$SERVICE" --region "$$REGION" \
+          --format='value(status.traffic[0].revisionName)' > /workspace/previous_revision
+        SUFFIX="c$$(echo "$$BUILD_ID" | cut -c1-8)"
+        echo "$$SERVICE-$$SUFFIX" > /workspace/candidate.txt
+        gcloud run deploy "$$SERVICE" --region "$$REGION" \
+          --image "$$REGION-docker.pkg.dev/$$PROJECT_ID/$$REPO/$$SERVICE:$$BUILD_ID" \
+          --no-traffic --tag candidate --revision-suffix "$$SUFFIX" \
+          --set-env-vars "MODEL_ID=$$CANDIDATE_MODEL,GOOGLE_CLOUD_PROJECT=$$PROJECT_ID"
+
+  - id: canary-10
+    timeout: 120s
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    env: *inputs
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        # Move 10% to the exact revision. The rest stays on the baseline.
+        gcloud run services update-traffic "$$SERVICE" --region "$$REGION" \
+          --to-revisions "$$(cat /workspace/candidate.txt)=10"
+        date +%s > /workspace/shift_epoch  # the watch window starts here
+
+  # The watch runs in a Python image (the slim Cloud SDK image has no python3 on PATH).
+  # It never fails the step itself: it leaves a marker file, and rollback-if-failed acts on it.
+  - id: watch
+    timeout: 2400s
+    name: python:3.12-slim
+    entrypoint: bash
+    env: *inputs
+    args:
+      - -c
+      - |
+        set -uo pipefail
+        # Any failure here (crash, timeout, unhealthy canary) leaves the marker, so rollback runs.
+        export PYTHONPATH=/workspace/pydeps  # installed by the test step, before traffic moved
+        # The hard limit leaves the rest of the build timeout for the rollback.
+        timeout "$$((WATCH_MINUTES * 60 + 300))" \
+          python pipeline/watch_canary.py --project "$$PROJECT_ID" --service "$$SERVICE" --region "$$REGION" \
+          --revision "$$(cat /workspace/candidate.txt)" --since "$$(cat /workspace/shift_epoch)" \
+          --minutes "$$WATCH_MINUTES" --max-error-rate "$$MAX_ERROR_RATE" \
+          || echo failed > /workspace/canary_failed
+        exit 0
+
+  - id: rollback-if-failed
+    timeout: 600s
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    env: *inputs
+    args:
+      - -c
+      - |
+        set -uo pipefail  # no -e on purpose: every failure below must reach a clear message
+        [ -f /workspace/canary_failed ] || { echo "Canary healthy, no rollback."; exit 0; }
+        # Prints the revisions that carry traffic, as sorted "name percent;" items. Tag-only entries (0 or no
+        # percent) are ignored, so a tag never counts as traffic.
+        split_of() {
+          gcloud run services describe "$$SERVICE" --region "$$REGION" \
+            --format='value(status.traffic[0].revisionName,status.traffic[0].percent,status.traffic[1].revisionName,status.traffic[1].percent,status.traffic[2].revisionName,status.traffic[2].percent,status.traffic[3].revisionName,status.traffic[3].percent,status.traffic[4].revisionName,status.traffic[4].percent,status.traffic[5].revisionName,status.traffic[5].percent)' \
+            | awk -F'\t' '{ for (i = 1; i < NF; i += 2) if ($$(i + 1) + 0 > 0) print $$i, $$(i + 1) }' | sort | tr '\n' ';'
+        }
+        PREV="$$(cat /workspace/previous_revision)"
+        echo "Canary failed. Rolling back to $$PREV."
+        if ! gcloud run services update-traffic "$$SERVICE" --region "$$REGION" --to-revisions "$$PREV=100"; then
+          echo "ROLLBACK FAILED: the update-traffic command failed. Run the recovery command in the README now."
+          exit 1
+        fi
+        SPLIT="$$(split_of)"
+        if [ "$$SPLIT" = "$$PREV 100;" ]; then
+          echo "Rolled back to $$PREV at 100%. Failing the build on purpose."
+        else
+          echo "ROLLBACK FAILED: traffic is now '$$SPLIT'. Run the recovery command in the README now."
+        fi
+        exit 1
+
+  - id: promote
+    timeout: 300s
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    env: *inputs
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        # Prints the revisions that carry traffic, as sorted "name percent;" items. Tag-only entries (0 or no
+        # percent) are ignored, so a tag never counts as traffic.
+        split_of() {
+          gcloud run services describe "$$SERVICE" --region "$$REGION" \
+            --format='value(status.traffic[0].revisionName,status.traffic[0].percent,status.traffic[1].revisionName,status.traffic[1].percent,status.traffic[2].revisionName,status.traffic[2].percent,status.traffic[3].revisionName,status.traffic[3].percent,status.traffic[4].revisionName,status.traffic[4].percent,status.traffic[5].revisionName,status.traffic[5].percent)' \
+            | awk -F'\t' '{ for (i = 1; i < NF; i += 2) if ($$(i + 1) + 0 > 0) print $$i, $$(i + 1) }' | sort | tr '\n' ';'
+        }
+        CAND="$$(cat /workspace/candidate.txt)"
+        PREV="$$(cat /workspace/previous_revision)"
+        # Promote only if the service still has the split THIS run set: baseline 90 and candidate 10, nothing else.
+        SPLIT="$$(split_of)"
+        EXPECTED="$$(printf '%s\n' "$$PREV 90" "$$CAND 10" | sort | tr '\n' ';')"
+        if [ "$$SPLIT" != "$$EXPECTED" ]; then
+          echo "Traffic is '$$SPLIT', not the 90/10 split this run set. Not promoting."
+          exit 1
+        fi
+        gcloud run services update-traffic "$$SERVICE" --region "$$REGION" --to-revisions "$$CAND=100"

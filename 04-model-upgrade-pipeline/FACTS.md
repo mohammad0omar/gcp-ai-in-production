@@ -1,0 +1,24 @@
+# Facts and sources
+
+Format: claim | URL | date checked.
+
+- `gcloud run deploy` flags `--no-traffic`, `--tag`, `--set-env-vars` (removes existing vars first), `--image`, `--region`, `--revision-suffix` | https://docs.cloud.google.com/sdk/gcloud/reference/run/deploy | 2026-11-20
+- `gcloud run services update-traffic` flags `--to-tags TAG=PERCENTAGE`, `--to-latest`, `--to-revisions REVISION=PERCENTAGE`, `--region` | https://docs.cloud.google.com/sdk/gcloud/reference/run/services/update-traffic | 2026-11-20
+- `gcloud builds submit` flags `--config`, `--substitutions` (keys start with underscore), `--region`, `--service-account` | https://docs.cloud.google.com/sdk/gcloud/reference/builds/submit | 2026-11-20
+- Cloud Build substitutions: `_UPPER_CASE` user names, `$PROJECT_ID` and `$BUILD_ID` built in, `$$` escapes a literal dollar | https://docs.cloud.google.com/build/docs/configuring-builds/substitute-variable-values | 2026-11-20
+- Cloud Monitoring metric `run.googleapis.com/request_count`: DELTA INT64, resources `cloud_run_revision` and `cloud_run_instance`, labels `response_code`, `response_code_class`, `route` | https://docs.cloud.google.com/monitoring/api/metrics_gcp_p_z | 2026-11-20
+- `cloud_run_revision` monitored resource labels `project_id`, `service_name`, `revision_name`, `location`, `configuration_name` | https://docs.cloud.google.com/monitoring/api/resources | 2026-11-20
+- `ListTimeSeriesRequest` fields `name`, `filter`, `interval`, `aggregation` (optional; raw data if unset), `view`; `list_time_series(..., timeout=)` accepted (checked by introspecting google-cloud-monitoring) | https://docs.cloud.google.com/python/docs/reference/monitoring/latest/google.cloud.monitoring_v3.types.ListTimeSeriesRequest | 2026-11-20
+- Model ids and retirement dates: `gemini-3.8-flash` retires 2027-09-02 or later; `gemini-3.7-flash` retires 2027-01-28, replacement `gemini-3.8-flash`; retirement dates may be extended, never moved earlier | https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions | 2026-11-20
+- The models page and model versions page describe only version ids; no auto-updating "latest" alias is described there | https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models | 2026-11-20
+- `google-genai` Client(vertexai=True, project, location), `models.generate_content(model, contents, config)`, `GenerateContentConfig(system_instruction, response_mime_type, temperature)`, `errors.APIError(code, response_json)` | https://googleapis.github.io/python-genai/ | 2026-11-20 (carried from folder 01; verified by running the tests)
+- `response_code` is a documented label of `request_count`; the watch counts values 500 to 599 so it does not depend on the values of `response_code_class` | https://docs.cloud.google.com/monitoring/api/metrics_gcp_p_z | 2026-11-20
+- Gemini 3: keep temperature at the default 1.0 (so the code sets none) | https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/start/get-started-with-gemini-3 | 2026-11-20
+- `types.HttpOptions(timeout in ms, retry_options)` and `types.HttpRetryOptions(attempts, ...)` exist in google-genai (checked by introspection) | https://googleapis.github.io/python-genai/ | 2026-11-20
+- `gcloud builds submit` flags `--gcs-source-staging-dir` (default `gs://PROJECT_ID_cloudbuild/source`) and `--gcs-log-dir` (default a `PROJECT_NUMBER.cloudbuild-logs.googleusercontent.com` bucket); `--region` selects the build location | https://docs.cloud.google.com/sdk/gcloud/reference/builds/submit | 2026-11-20
+- `--service-account` format `projects/PROJECT/serviceAccounts/EMAIL` and the need for a logging option with a user-specified account: not shown on the fetched reference page; the yaml sets `options.logging: CLOUD_LOGGING_ONLY` | https://docs.cloud.google.com/build/docs/securing-builds/configure-user-specified-service-accounts | 2026-11-20 (unverified)
+- Tag URL format `https://TAG---SERVICE-hash.a.run.app`; rollback is `update-traffic SERVICE --to-revisions REVISION=100` | https://docs.cloud.google.com/run/docs/rollouts-rollbacks-traffic-migration | 2026-11-20
+- The `cloud-sdk:slim` image has no `python3` on PATH (Codex finding, per the image Dockerfile), so the watch runs in `python:3.12-slim` | https://github.com/GoogleCloudPlatform/cloud-sdk-docker/blob/master/debian_slim/Dockerfile | 2026-11-20 (not re-fetched)
+- Cloud Monitoring reads are priced under Observability pricing | https://cloud.google.com/products/observability/pricing | 2026-11-20
+- Cloud Build step-level `timeout` field and the build-level `timeout` | https://docs.cloud.google.com/build/docs/build-config-file-schema | 2026-11-20 (not re-fetched this round)
+- Cloud Run `status.traffic` can hold tag-only entries with 0 or no percent; the pipeline ignores them when checking the split | https://docs.cloud.google.com/run/docs/reference/rest/v1/TrafficTarget | 2026-11-20
