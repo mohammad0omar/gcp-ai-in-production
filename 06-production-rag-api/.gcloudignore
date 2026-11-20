@@ -1,0 +1,15 @@
+# Cloud Build uploads only what the Dockerfile copies. Terraform state, variable files and
+# the provider cache never leave your machine.
+*
+!Dockerfile
+!config.py
+!app/
+!app/*.py
+!app/requirements.txt
+!rag/
+!rag/*.py
+!sql/
+!sql/*.sql
+!docs/
+!docs/*.txt
+__pycache__/

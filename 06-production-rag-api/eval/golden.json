@@ -1,0 +1,42 @@
+[
+  {
+    "question": "Can a fire exit be locked while the shop is open?",
+    "expected_doc": "fire-code-7"
+  },
+  {
+    "question": "What is the fine for a repeat blocked exit?",
+    "expected_doc": "fire-code-7"
+  },
+  {
+    "question": "When do quiet hours start on a Saturday?",
+    "expected_doc": "noise-bylaw-2"
+  },
+  {
+    "question": "How fast must the noise desk answer a complaint?",
+    "expected_doc": "noise-bylaw-2"
+  },
+  {
+    "question": "How much is a dog licence for a neutered dog?",
+    "expected_doc": "dog-licence-4"
+  },
+  {
+    "question": "How long can a dog without a tag be held?",
+    "expected_doc": "dog-licence-4"
+  },
+  {
+    "question": "How long does a market trading permit last?",
+    "expected_doc": "market-permit-9"
+  },
+  {
+    "question": "May a delivery van stop in a bike lane?",
+    "expected_doc": "bike-lane-3"
+  },
+  {
+    "question": "On which day is recycling collected?",
+    "expected_doc": "waste-collection-5"
+  },
+  {
+    "question": "How many bulky items can be collected per visit?",
+    "expected_doc": "waste-collection-5"
+  }
+]
