@@ -1,0 +1,17 @@
+# Keep local secrets and clutter out of the source upload.
+.venv/
+tests/
+terraform/
+drill/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.md
+FACTS.md
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*credentials*.json
+*service-account*.json

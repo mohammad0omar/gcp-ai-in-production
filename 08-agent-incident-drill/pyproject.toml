@@ -1,0 +1,17 @@
+[project]
+name = "agent-incident-drill"
+version = "0.1.0"
+description = "Pebble Post support agent with tracing, structured logs and an incident drill"
+requires-python = ">=3.12"
+dependencies = [
+  "google-adk",
+  "opentelemetry-api",
+  "opentelemetry-exporter-gcp-trace>=1.15.0",
+]
+
+[dependency-groups]
+dev = ["pytest", "httpx", "pyyaml"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
