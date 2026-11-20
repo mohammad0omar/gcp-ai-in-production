@@ -1,0 +1,44 @@
+# Every price used by report.py. Dollars. Check each source before you trust a number.
+# The Cloud Run table is the instance-based, Tier 1 column (us-central1).
+# Gemini output is billed per 1M tokens and includes thinking tokens.
+
+[cloud_run.gpu_second]
+value = 0.00036522
+unit = "USD per second, NVIDIA RTX PRO 6000, no zonal redundancy"
+source = "https://cloud.google.com/run/pricing"
+checked = "2026-11-20"
+
+[cloud_run.vcpu_second]
+value = 0.000018
+unit = "USD per vCPU-second, instance-based billing"
+source = "https://cloud.google.com/run/pricing"
+checked = "2026-11-20"
+
+[cloud_run.gib_second]
+value = 0.000002
+unit = "USD per GiB-second, instance-based billing"
+source = "https://cloud.google.com/run/pricing"
+checked = "2026-11-20"
+
+# Gemini 3.8 Flash, `global` endpoint, standard tier, output only (includes thinking tokens).
+# The report picks the rate whose dates contain --pricing-date. Non-global endpoints cost more.
+[gemini.output_2026]
+value = 3.75
+unit = "USD per 1M output tokens, Gemini 3.8 Flash, global, standard, introductory"
+effective_from = "2026-01-01"
+effective_to = "2026-12-31"
+source = "https://cloud.google.com/vertex-ai/generative-ai/pricing"
+checked = "2026-11-20"
+
+[gemini.output_2027]
+value = 7.50
+unit = "USD per 1M output tokens, Gemini 3.8 Flash, global, standard, from 2027-01-01"
+effective_from = "2027-01-01"
+effective_to = "2099-12-31"
+source = "https://cloud.google.com/vertex-ai/generative-ai/pricing"
+checked = "2026-11-20"
+
+# Shape of the Cloud Run instance, from deploy/deploy_gemma.sh.
+[instance]
+vcpu = 20
+memory_gib = 80
