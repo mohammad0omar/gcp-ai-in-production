@@ -14,7 +14,7 @@ GEMINI_LOCATION = os.environ.get("GEMINI_LOCATION", "global")
 # Hard business rules for refunds. The agent cannot talk its way past these.
 MAX_REFUND_MINOR = 5000
 
-# Time budget. Worst case for one /run request, in seconds:
+# Time budget. Planning estimate of the worst case for one /run request, in seconds:
 #   MAX_LLM_CALLS * (MODEL_ATTEMPTS * MODEL_TIMEOUT_S + MODEL_MAX_DELAY_S) < CLOUD_RUN_TIMEOUT_S
 #   4 * (2 * 30 + 4) = 256 < 300
 MODEL_TIMEOUT_S = 30

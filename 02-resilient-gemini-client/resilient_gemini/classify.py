@@ -14,11 +14,26 @@ from google.genai import errors
 RETRYABLE_CODES = frozenset({408, 429, 500, 502, 503, 504})
 
 
+def _timeout_types() -> tuple[type, ...]:
+    # google-genai 3.6.1 also imports httpx2; look it up safely, it may not be installed.
+    found: list[type] = [httpx.TimeoutException, TimeoutError]
+    try:
+        import httpx2
+
+        found.append(httpx2.TimeoutException)
+    except (ImportError, AttributeError):
+        pass
+    return tuple(found)
+
+
+_TIMEOUT_TYPES = _timeout_types()
+
+
 def is_retryable(error: BaseException) -> bool:
     """True for 408, 429, 500, 502, 503, 504 and timeouts. 400, 403, 404 and the rest are not."""
     if isinstance(error, errors.APIError):
         return error.code in RETRYABLE_CODES
-    return isinstance(error, httpx.TimeoutException | TimeoutError)
+    return isinstance(error, _TIMEOUT_TYPES)
 
 
 def retry_after_seconds(

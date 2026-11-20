@@ -8,8 +8,8 @@ from config import DLP_LOCATION, DLP_TIMEOUT_S, INFO_TYPES
 from google.cloud import dlp_v2
 
 # Fail-closed check after DLP: anything that still looks like an email address or a
-# 13 to 19 digit card number (spaces or dashes allowed) means DLP missed something.
-LEFTOVER = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+|(?:\d[ -]?){13,19}")
+# 13 to 19 digit card number (spaces or dashes allowed, not part of a longer digit run) means DLP missed something.
+LEFTOVER = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+|(?<!\d)(?:\d[ -]?){13,19}(?!\d)")
 
 
 def looks_unredacted(text: str) -> bool:

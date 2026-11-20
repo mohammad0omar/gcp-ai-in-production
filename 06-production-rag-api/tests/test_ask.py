@@ -155,10 +155,11 @@ def test_time_budget_fits_cloud_run_timeout():
 
     import config
 
-    one_call = config.GENAI_MAX_ATTEMPTS * config.GENAI_TIMEOUT_SECONDS + 1.5  # 1.5s = max backoff
+    one_call = config.GENAI_MAX_ATTEMPTS * config.GENAI_TIMEOUT_SECONDS + 3  # 3s = 1s + 2s backoff
     total = config.CONNECT_TIMEOUT_SECONDS + 2 * one_call + config.STATEMENT_TIMEOUT_MS / 1000
     tf = (Path(__file__).resolve().parents[1] / "terraform" / "main.tf").read_text()
     seconds = int(re.search(r'timeout\s*=\s*"(\d+)s"\s*#', tf).group(1))
+    assert total == 89  # a nominal sum, not a hard limit
     assert total < seconds
 
 

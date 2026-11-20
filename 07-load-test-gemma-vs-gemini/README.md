@@ -34,7 +34,7 @@ These steps rent a GPU. Run them yourself, in a dedicated project you can bill a
 6. Run the Gemma side. Run at least 5 minutes so ramp-up is a small part of the window:
    ```bash
    uv sync
-   uv run locust -f loadtest/locustfile.py GemmaUser --headless -u 8 -r 1 -t 5m
+   uv run locust -f loadtest/locustfile.py GemmaUser --headless -u 8 -r 1 -t 5m --stop-timeout 70
    ```
 7. Delete the GPU service now, before the Gemini run. The same command works after an interrupted run:
    ```bash
@@ -42,11 +42,11 @@ These steps rent a GPU. Run them yourself, in a dedicated project you can bill a
    ```
 8. Run the Gemini side with your own credentials (`gcloud auth application-default login`; the account needs `roles/aiplatform.user`). The run uses thinking level `LOW` (config.py, env `THINKING_LEVEL`); the model default is `MEDIUM`. State the level in your post:
    ```bash
-   GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID uv run locust -f loadtest/locustfile.py GeminiUser --headless -u 8 -r 1 -t 5m
+   GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID uv run locust -f loadtest/locustfile.py GeminiUser --headless -u 8 -r 1 -t 5m --stop-timeout 70
    ```
-9. Read the numbers from the ONE Gemma file and the ONE Gemini file of this comparison (name them, do not glob; the report refuses two files for the same side). Use the average billed output tokens per request, the share of time an always-on GPU would be busy in production, and the date whose Gemini price you want:
+9. Read the numbers from the ONE Gemma file and the ONE Gemini file of this comparison (name them, do not glob; the report refuses two files for the same side). The report takes the average billed output tokens per request from the Gemini file (pass `--output-tokens` to override). Give the share of time an always-on GPU would be busy in production, and the date whose Gemini price you want:
    ```bash
-   uv run python report.py results/records-GEMMA_RUN.csv results/records-GEMINI_RUN.csv --utilisation 0.6 --output-tokens 128 --pricing-date 2027-04-13
+   uv run python report.py results/records-GEMMA_RUN.csv results/records-GEMINI_RUN.csv --utilisation 0.6 --pricing-date 2027-04-13
    ```
 
 Safe test habits: keep the first run to a few minutes, set a budget alert, delete the service the moment the Gemma run ends, and use a new records file per comparison (the locustfile makes one per run).
@@ -56,8 +56,8 @@ Safe test habits: keep the first run to a few minutes, set a budget alert, delet
 - Gemma throughput is the output tokens of requests that start inside a steady window, divided by the window length. Only requests that start and end inside the window count, so no token is credited from outside it. Failures inside the window count as time with no tokens. The default window drops the first and last 10 percent of the test; set your own with `--steady-window START END` (seconds from test start). It is a busy-GPU number for one instance.
 - Utilisation is the share of an always-on instance's time that is busy in production. Idle time is counted once, there. Cost per 1M tokens is the instance hour price divided by throughput times utilisation.
 - Break-even is where one always-on instance costs the same per day as Gemini for the same output tokens. The report also prints how many requests one instance can serve, using Gemma's own measured output tokens per request (not Gemini's billed count), and how many instances the break-even volume needs. One instance is the limit; extra instances add cost and capacity together.
-- It is output tokens only. Input tokens, request fees and engineering time are not included.
-- Gemini decode speed uses visible tokens; cost uses billed tokens, which include thinking tokens.
+- It is output tokens only. Input tokens, networking and engineering time are not included.
+- Tokens per second is an approximate streaming rate (a chunk can hold several tokens, and first-chunk tokens are counted). Gemini decode speed uses visible tokens; cost uses billed tokens, which include thinking tokens.
 - Gemini price depends on the date (3.75 until 2026-12-31, 7.50 from 2027-01-01 for output on the `global` endpoint). Pass `--pricing-date`.
 
 ## Clean up

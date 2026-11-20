@@ -24,3 +24,16 @@ def test_main_fails_below_threshold(monkeypatch):
     answers = {f"q{i}": {"answer": "x [a]" if i < 7 else "x"} for i in range(10)}
     assert run_eval.verdict(run_eval.score(golden, lambda q: answers[q])) == 1
     assert run_eval.verdict(8) == 0
+
+
+def test_http_error_counts_as_one_failed_case():
+    import requests
+
+    golden = [{"question": f"q{i}", "expected_doc": "a"} for i in range(10)]
+
+    def ask(q):
+        if q == "q0":
+            raise requests.HTTPError("500")
+        return {"answer": "x [a]"}
+
+    assert run_eval.score(golden, ask) == 9

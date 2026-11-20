@@ -25,7 +25,7 @@ checked = "2026-11-20"
 [gemini.output_2026]
 value = 3.75
 unit = "USD per 1M output tokens, Gemini 3.8 Flash, global, standard, introductory"
-effective_from = "2026-01-01"
+effective_from = "2026-11-20"  # date checked; the model launch date was not confirmed
 effective_to = "2026-12-31"
 source = "https://cloud.google.com/vertex-ai/generative-ai/pricing"
 checked = "2026-11-20"
@@ -34,7 +34,6 @@ checked = "2026-11-20"
 value = 7.50
 unit = "USD per 1M output tokens, Gemini 3.8 Flash, global, standard, from 2027-01-01"
 effective_from = "2027-01-01"
-effective_to = "2099-12-31"
 source = "https://cloud.google.com/vertex-ai/generative-ai/pricing"
 checked = "2026-11-20"
 

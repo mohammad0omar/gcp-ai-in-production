@@ -13,7 +13,7 @@ RETRYABLE = {429, 500, 503, 504}
 def with_retries[T](
     call: Callable[[], T],
     attempts: int = GENAI_MAX_ATTEMPTS,
-    base_delay: float = 0.5,
+    base_delay: float = 1.0,
     sleep: Callable[[float], None] = time.sleep,
 ) -> T:
     for attempt in range(attempts):

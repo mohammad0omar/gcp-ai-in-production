@@ -123,7 +123,7 @@ def test_push_auth_rejects_wrong_service_account(world):
 
 
 def test_push_auth_requires_bearer(world):
-    body = {"message": {"data": "", "messageId": "x"}}
+    body = {"message": {"data": "", "messageId": "x"}, "subscription": "s"}
     assert world.client.post("/pubsub", json=body).status_code == 401
 
 
@@ -206,3 +206,46 @@ def test_failed_ticket_write_is_not_acked(world):
 def test_permanent_firestore_error_is_500(world):
     world.db.commit_error = gax.PermissionDenied("no role")
     assert push(world).status_code == 500
+
+
+def test_wrong_subscription_is_refused(world):
+    response = push(world, sub="projects/proj/subscriptions/other")
+    assert response.status_code == 403
+    assert world.dlp.calls == 0 and world.models.seen == []
+
+
+def test_missing_subscription_is_400_without_echoing_the_body(world):
+    body = {"message": {"data": "c2VjcmV0", "messageId": "m1"}}
+    response = world.client.post(
+        "/pubsub", json=body, headers={"Authorization": f"Bearer {AUDIENCE}|{PUSH_SA}"}
+    )
+    assert response.status_code == 400
+    assert "c2VjcmV0" not in response.text
+
+
+def test_needs_review_keeps_a_source_reference(world):
+    world.models.replies = ["bad", "bad"]
+    push(world)
+    source = world.db.data["needs_review"]["m1"]["source"]
+    assert source["subscription"] == "projects/proj/subscriptions/support-emails-push"
+    assert source["message_id"] == "m1"
+
+
+def test_unexpected_exception_is_a_clean_500_and_not_logged_with_body(
+    world, monkeypatch, caplog
+):
+    def boom(*a, **k):
+        raise RuntimeError("leaked jo@example.com")
+
+    monkeypatch.setattr(world.models, "generate_content", boom)
+    response = push(world)
+    assert response.status_code == 500 and "jo@example.com" not in response.text
+    assert "jo@example.com" not in caplog.text
+
+
+def test_leftover_check_respects_digit_boundaries():
+    from app.redact import looks_unredacted
+
+    assert looks_unredacted("card 4111-1111-1111-1111 here")
+    assert not looks_unredacted("tracking 12345678901234567890123456")
+    assert not looks_unredacted("order 12345 on 2026-11-20")

@@ -64,3 +64,9 @@ def test_transport_failure_scores_zero_and_finishes_the_table(capsys):
     code = main(["--model", "m", "--golden", GOLDEN, "--threshold", "0.95"], client=client)
     out = capsys.readouterr().out
     assert code == 1 and "ConnectError" in out and "kyoto-5d" in out
+
+
+def test_one_malformed_answer_fails_the_schema_gate(capsys):
+    args = ["--model", "m", "--golden", GOLDEN, "--threshold", "0.5"]
+    assert main(args, client=FakeClient(broken={"paris-3d"})) == 1  # mean 0.92, over 0.5, still fails
+    assert "malformed=1" in capsys.readouterr().out

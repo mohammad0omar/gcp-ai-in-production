@@ -17,7 +17,7 @@ def test_embed_documents_batches_and_uses_document_task(monkeypatch):
     monkeypatch.setattr(embed, "get_client", lambda: client)
     vectors = embed.embed_documents([f"t{i}" for i in range(40)])
     assert len(vectors) == 40
-    assert client.models.embed_content.call_count == 3  # 16 + 16 + 8
+    assert client.models.embed_content.call_count == 1  # 40 short texts fit one request
     config = client.models.embed_content.call_args.kwargs["config"]
     assert config.task_type == "RETRIEVAL_DOCUMENT"
     assert config.output_dimensionality == 768
@@ -110,3 +110,32 @@ def test_empty_docs_directory_does_not_empty_the_table(tmp_path, monkeypatch):
     (tmp_path / "docs").mkdir()
     monkeypatch.setattr(ingest, "connect", lambda: pytest.fail("connected"))
     assert ingest.main() == 1
+
+
+def test_batches_respect_the_token_budget_and_text_limit():
+    big = " ".join(["w"] * 800)  # 1200 estimated tokens
+    groups = embed.batches([big] * 30)
+    assert sum(len(g) for g in groups) == 30
+    assert all(len(g) * 1200 <= 20_000 for g in groups)
+    assert len(embed.batches(["a"] * 600)) == 3  # 250 + 250 + 100
+    assert embed.batches([]) == []
+
+
+def test_document_with_no_text_is_rejected_before_any_embedding(tmp_path, monkeypatch):
+    (tmp_path / "empty.txt").write_text("jurisdiction: city\n   \n")
+    monkeypatch.setattr(ingest, "embed_documents", lambda t: pytest.fail("embedded"))
+    with pytest.raises(ValueError, match="empty.txt"):
+        ingest.prepare(tmp_path)
+
+
+def test_first_retry_waits_about_a_second():
+    waits = []
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise errors.APIError(503, {"error": {"message": "busy"}})
+
+    with_retries(flaky, sleep=waits.append)
+    assert 0.5 <= waits[0] <= 1.0

@@ -2,7 +2,7 @@
 
 Usage: python report.py results/records-GEMMA.csv results/records-GEMINI.csv --utilisation 0.6 --output-tokens 128 --pricing-date 2027-04-13
 Money maths uses Decimal so the break-even is exact. No price appears in this file.
-The comparison is OUTPUT TOKENS ONLY: input tokens, the Cloud Run request fees and the
+The comparison is OUTPUT TOKENS ONLY: input tokens, networking and the
 cost of your own engineers are not in it.
 
 Throughput and utilisation: throughput is measured while the GPU is kept busy: output tokens
@@ -41,6 +41,7 @@ class Record:
     started_at: float
     ended_at: float
     ok: bool
+    billed_output_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,8 @@ def _price(prices: dict, section: str, name: str) -> Decimal:
 def gemini_output_per_million(prices: dict, on: date) -> Decimal:
     """Gemini output price in force on `on`. Raises PriceError if no rate covers the date."""
     for entry in prices.get("gemini", {}).values():
-        if date.fromisoformat(entry["effective_from"]) <= on <= date.fromisoformat(entry["effective_to"]):
+        end = date.fromisoformat(entry["effective_to"]) if "effective_to" in entry else date.max  # no end date means open-ended
+        if date.fromisoformat(entry["effective_from"]) <= on <= end:
             return Decimal(str(entry["value"]))
     raise PriceError(f"prices.toml has no Gemini output price for {on}")
 
@@ -104,6 +106,7 @@ def read_records(path: Path) -> list[Record]:
                 started_at=float(row.get("started_at") or 0),
                 ended_at=float(row.get("ended_at") or 0),
                 ok=row["ok"] == "1",
+                billed_output_tokens=int(row.get("billed_output_tokens") or row["output_tokens"]),
             )
             for row in csv.DictReader(handle)
         ]
@@ -169,6 +172,12 @@ def check_one_run_per_side(files_records: dict[str, list[Record]]) -> None:
             if side in seen:
                 raise ValueError(f"{side} appears in both {seen[side]} and {name}; pass one file per side")
             seen[side] = name
+
+
+def mean_billed_output_tokens(records: list[Record], side: str) -> Decimal | None:
+    """Average BILLED output tokens (thinking included) of one side's successful requests."""
+    good = [r.billed_output_tokens for r in records if r.side == side and r.ok]
+    return Decimal(sum(good)) / len(good) if good else None
 
 
 def instances_needed(requests_per_day: Decimal, capacity_per_instance: Decimal) -> int:
@@ -247,7 +256,7 @@ def main() -> None:
     parser.add_argument("records", type=Path, nargs="+", help="the Gemma and Gemini records files of ONE comparison")
     parser.add_argument("--prices", type=Path, default=Path(__file__).with_name("prices.toml"))
     parser.add_argument("--utilisation", type=Decimal, required=True, help="busy share of an always-on instance, above 0 up to 1")
-    parser.add_argument("--output-tokens", type=int, required=True, help="average BILLED Gemini output tokens per request")
+    parser.add_argument("--output-tokens", type=int, help="average BILLED Gemini output tokens per request; default is the mean from the Gemini CSV")
     parser.add_argument("--pricing-date", type=date.fromisoformat, default=date.today(), help="YYYY-MM-DD, picks the Gemini rate")
     parser.add_argument("--steady-window", type=Decimal, nargs=2, metavar=("START", "END"),
                         help="seconds from test start; default drops the first and last 10 percent")
@@ -268,13 +277,18 @@ def main() -> None:
     if throughput is None or gemma_tokens is None:
         raise SystemExit("No successful Gemma requests in the steady window; cannot price the GPU side.")
 
+    billed = mean_billed_output_tokens(records, "gemini")
+    output_tokens = args.output_tokens or (round(billed) if billed else None)
+    if not output_tokens:
+        raise SystemExit("No successful Gemini requests; pass --output-tokens.")
+    print(f"Gemini mean billed output tokens per request: {output_tokens}")
     gpu_hour = gpu_instance_hour(prices)
     gemini_price = gemini_output_per_million(prices, args.pricing_date)
-    print("Output tokens only. Input tokens and request fees are not included.")
+    print("Output tokens only. Input tokens, networking and engineering time are not included.")
     print(f"Gemma steady-window throughput: {throughput:.1f} tokens/s per instance (measured while busy)")
     print(f"Gemma cost per 1M output tokens: {gemma_cost_per_million(gpu_hour, throughput, args.utilisation):.2f}")
     print(f"Gemini cost per 1M output tokens on {args.pricing_date}: {gemini_price:.2f}")
-    break_even = break_even_requests_per_day(gpu_hour, gemini_price, args.output_tokens)
+    break_even = break_even_requests_per_day(gpu_hour, gemini_price, output_tokens)
     capacity = instance_capacity_requests_per_day(throughput, args.utilisation, gemma_tokens)
     print(f"Break-even requests per day (one always-on instance vs Gemini): {break_even:.0f}")
     print(f"One instance can serve about {capacity:.0f} requests per day at Gemma's own {gemma_tokens:.0f} output tokens per request")

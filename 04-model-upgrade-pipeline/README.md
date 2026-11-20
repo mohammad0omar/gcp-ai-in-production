@@ -2,7 +2,7 @@
 
 Larkspur Travel is a trip-planning app. Its FastAPI service on Cloud Run has one Gemini endpoint, `POST /summarize`, that turns a pasted itinerary into JSON (destination, days, highlights, budget level). Their current model, `gemini-3.7-flash`, retires on 2027-01-28, so they need to move to `gemini-3.8-flash` without a bad release reaching every user.
 
-**Run only one pipeline per service at a time.** Cloud Run has one traffic split and one `candidate` tag per service, and the checks in this pipeline are guards, not a lock. Overlapping runs can overwrite each other's split or rollback. Start upgrades from one trigger that runs one build at a time.
+**Run only one pipeline per service at a time.** Cloud Run has one traffic split and one `candidate` tag per service, and the checks in this pipeline are guards, not a lock. Overlapping runs can overwrite each other's split or rollback. A Cloud Build trigger does not give you mutual exclusion by itself, so serialise runs yourself (for example one person or one scheduled job owns upgrades).
 
 ```text
 gcloud builds submit (Cloud Build)
@@ -12,7 +12,7 @@ gcloud builds submit (Cloud Build)
   deploy-candidate new Cloud Run revision, tagged "candidate", 0% traffic, MODEL_ID=candidate
   canary-10        10% of traffic to the candidate revision
   watch            read the candidate's 5xx rate from Cloud Monitoring for N minutes
-  promote          100% to the latest revision
+  promote          100% to the candidate revision (only if the 90/10 split is unchanged)
   (watch fails)    100% back to the previous revision, build fails
 ```
 
@@ -22,9 +22,10 @@ gcloud builds submit (Cloud Build)
 
 ## Steps
 
-You need a billable project, `gcloud` and Python 3.12. These steps change your project. Run them yourself. Replace `YOUR_PROJECT_ID` and set the variables once:
+You need a billable project, `gcloud` and Python 3.12. These steps change your project. Run them yourself. Replace `YOUR_PROJECT_ID` and set the variables once. Run everything from this folder (`.gcloudignore` keeps `.venv`, credentials and caches out of the uploaded source):
 
 ```bash
+cd 04-model-upgrade-pipeline
 export PROJECT_ID=YOUR_PROJECT_ID REGION=europe-west1
 export BUILD_SA=larkspur-build RUNTIME_SA=larkspur-runtime BUCKET=$PROJECT_ID-larkspur-build
 gcloud config set project $PROJECT_ID
@@ -77,7 +78,7 @@ gcloud config set project $PROJECT_ID
      --substitutions=_CANDIDATE_MODEL=gemini-3.8-flash,_REGION=$REGION .
    ```
    Other substitutions: `_EVAL_THRESHOLD` (0.9), `_WATCH_MINUTES` (10), `_MAX_ERROR_RATE` (0.02). The build validates all of them first.
-9. While the `watch` step runs (about 13 minutes: the watch plus 3 minutes for metrics to arrive), send the candidate at least 20 requests. The tag URL (it points to the candidate while only this run exists) is the service URL with `candidate---` in front of the host:
+9. While the `watch` step runs (about 13 minutes: the watch plus 3 minutes for metrics to arrive), send the candidate at least 20 requests. `builds submit` waits for the build, so run this in a second terminal, or add `--async` to step 8 and follow the build in the console. The tag URL (it points to the candidate while only this run exists) is the service URL with `candidate---` in front of the host:
    ```bash
    URL=$(gcloud run services describe itinerary-summariser --region $REGION --format='value(status.url)')
    CANDIDATE_URL=${URL/https:\/\//https://candidate---}
@@ -98,29 +99,32 @@ GOOGLE_CLOUD_PROJECT=$PROJECT_ID python eval/run_eval.py --model gemini-3.8-flas
 
 ## Production choices and limits
 
-- The eval scores exact fields plus a schema check, so a model that "improves" the prose but breaks the JSON fails before any user sees it.
+- The eval scores exact fields plus a schema check, and has a separate schema gate: one malformed answer fails the eval even if the mean score is high. A model that "improves" the prose but breaks the JSON fails before any user sees it.
 - Gemini calls have a 30 s timeout and 3 attempts. A failed call scores 0 in the eval and returns a clean 503 or 504 from the app. We leave the sampling settings at the model default; Google recommends that for Gemini 3.
 - The candidate gets no traffic until the eval passes, then 10%, then a watch window of `_WATCH_MINUTES` plus 3 minutes, counted from the traffic shift. The window starts when traffic moves, so installs do not shorten it. It fails on a 5xx rate over the limit once there are 20 requests, fails closed with fewer than 20, and fails if the final read of Cloud Monitoring fails (an earlier healthy read never rescues it).
 - A bad model answer returns 502, which counts as an error in the watch.
 - Rollback is its own step. It restores the revision saved before the deploy and checks the split is back at 100%. If the command or the check fails, the log says `ROLLBACK FAILED` and the build fails.
-- **Limit: one pipeline run per service at a time.** Cloud Run has one traffic split per service, and the `candidate` tag points to one revision. Two overlapping runs would overwrite each other's tag and split, and one could promote a revision the other never watched. So every step after the deploy names the exact revision (`--to-revisions REVISION=10`, never a tag or `--to-latest`). The deploy step refuses to start unless one revision serves 100%, and promote refuses unless the service still has exactly the 90/10 split this run set. That is a guard, not a lock: two builds started in the same second could still race, so start upgrades from one trigger that runs one build at a time.
+- **Limit: one pipeline run per service at a time.** Cloud Run has one traffic split per service, and the `candidate` tag points to one revision. Two overlapping runs would overwrite each other's tag and split, and one could promote a revision the other never watched. So every step after the deploy names the exact revision (`--to-revisions REVISION=10`, never a tag or `--to-latest`). The deploy step refuses to start unless one revision serves 100%, and promote refuses unless the service still has exactly the 90/10 split this run set. That is a guard, not a lock: two builds started in the same second could still race, so serialise runs yourself (one owner for upgrades, or a lock outside this tutorial).
 - **Limit: a cancelled or timed-out build can leave 10% on the candidate.** The build has a 5400 s timeout and every step before the watch has its own shorter timeout, so the time left for the rollback is known. `_WATCH_MINUTES` is capped at 30, the watcher has a hard limit of the watch time plus 5 minutes, and a failed or timed-out watch still reaches the rollback step, so a timeout before rollback is unlikely. After a cancel, roll back by hand:
   `gcloud run services update-traffic itinerary-summariser --region $REGION --to-revisions PREVIOUS_REVISION=100` (find it with `gcloud run revisions list --service itinerary-summariser --region $REGION`).
 
 ## Clean up
 
+Remove the role bindings first, then delete the service accounts (a binding for a deleted account turns into an unresolvable entry).
+
 ```bash
+BUILD_MEMBER=serviceAccount:$BUILD_SA@$PROJECT_ID.iam.gserviceaccount.com
+for role in roles/logging.logWriter roles/aiplatform.user roles/monitoring.viewer; do
+  gcloud projects remove-iam-policy-binding $PROJECT_ID --member=$BUILD_MEMBER --role=$role
+done
+gcloud projects remove-iam-policy-binding $PROJECT_ID --member=serviceAccount:$RUNTIME_SA@$PROJECT_ID.iam.gserviceaccount.com --role=roles/aiplatform.user
 gcloud run services delete itinerary-summariser --region $REGION
 gcloud artifacts repositories delete larkspur --location=$REGION
 gcloud storage rm -r gs://$BUCKET      # source archives and baseline build logs; the upgrade logs go to Cloud Logging
 gcloud iam service-accounts delete $BUILD_SA@$PROJECT_ID.iam.gserviceaccount.com
 gcloud iam service-accounts delete $RUNTIME_SA@$PROJECT_ID.iam.gserviceaccount.com
-for role in roles/logging.logWriter roles/aiplatform.user roles/monitoring.viewer; do
-  gcloud projects remove-iam-policy-binding $PROJECT_ID --member=$BUILD_MEMBER --role=$role
-done
-gcloud projects remove-iam-policy-binding $PROJECT_ID --member=serviceAccount:$RUNTIME_SA@$PROJECT_ID.iam.gserviceaccount.com --role=roles/aiplatform.user
 ```
-Deleting a service account removes its bindings on the bucket and repository, which are deleted anyway. Also remove your own `roles/run.invoker` on the service (it goes with the service) and your `roles/iam.serviceAccountUser` grant (it goes with the build account). Upgrade build logs stay in Cloud Logging and are removed by the `_Default` bucket's retention period (30 days unless you changed it). APIs can stay enabled.
+Bucket and repository bindings go away with the bucket and repository. Check Cloud Storage soft delete on the bucket: deleted objects can stay recoverable, and billed, until its retention period ends. Your own `roles/run.invoker` on the service goes with the service, and your `roles/iam.serviceAccountUser` grants go with the service accounts. Upgrade build logs stay in Cloud Logging and are removed by the `_Default` bucket's retention period (30 days unless you changed it). APIs can stay enabled.
 
 ## What this costs
 

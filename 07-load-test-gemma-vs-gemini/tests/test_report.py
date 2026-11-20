@@ -175,3 +175,19 @@ def test_missing_price_is_a_clean_error(tmp_path):
     bad.write_text("[gemini]\n")
     with pytest.raises(report.PriceError):
         report.gemini_output_per_million(report.load_prices(bad), date(2027, 1, 1))
+
+
+def test_mean_billed_output_tokens_comes_from_the_gemini_records():
+    records = [
+        report.Record("gemini", 0.1, 10, 50.0, 0.0, 1.0, True, 40),
+        report.Record("gemini", 0.1, 10, 50.0, 1.0, 2.0, True, 60),
+        report.Record("gemini", 0.1, 10, 50.0, 2.0, 3.0, False, 999),
+    ]
+    assert report.mean_billed_output_tokens(records, "gemini") == Decimal(50)
+    assert report.mean_billed_output_tokens(records, "gemma") is None
+
+
+def test_open_ended_gemini_rate_has_no_end_date():
+    prices = report.load_prices(FOLDER / "prices.toml")
+    assert "effective_to" not in prices["gemini"]["output_2027"]
+    assert report.gemini_output_per_million(prices, date(2040, 1, 1)) == Decimal("7.5")

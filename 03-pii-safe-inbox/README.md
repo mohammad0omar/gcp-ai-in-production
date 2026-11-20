@@ -19,6 +19,8 @@ Rules the code follows:
 - Pub/Sub delivers at least once, so the same message can arrive twice, even at the same time. Each message id gets a `processed/{id}` marker plus one result document (`tickets/{id}` or `needs_review/{id}`), written in one atomic batch with create-if-absent. Two racing deliveries cannot leave both a ticket and a review record. An early read of the marker lets ordinary replays skip DLP and Gemini.
 - Model output that is not valid JSON for `Ticket` after one retry is written to `needs_review` (redacted text only) and answered with `200`. Retrying would give the same bad answer and loop until the dead letter topic.
 - Every failure before the final write answers non-2xx, so a message is never acknowledged without a ticket or a review record. Busy or timed-out DLP, Gemini, Firestore or certificate fetch answers `503`; permanent Google errors (for example a missing role) answer `500`. Neither response contains error text. Pub/Sub redelivers, and after about 5 attempts (Pub/Sub treats the limit as approximate) the message goes to the dead letter topic.
+- Push bodies must name this service's one subscription (`support-emails-push`); anything else is refused with 403. `needs_review` records keep a `source` (subscription, message id, publish time) so a person can find the original email in Pub/Sub while it is retained.
+- Cloud Run concurrency is set to 4 requests per instance, up to 5 instances.
 - Time budget (no client retries; Pub/Sub redelivery is the retry): certificate fetch 5 s, DLP 10 s, two Gemini calls 15 s each, two Firestore calls 10 s each, worst case 65 s. That covers the DLP, Firestore and model calls, not a credential refresh (the Google client refreshing its access token), which is rare and usually fast; the 110 s Cloud Run timeout leaves margin for it. Cloud Run stops a request at 110 s, the push ack deadline is 120 s. A test adds this up.
 - Logs contain the message id, the category and outcomes. They never contain the body, raw or redacted. A test checks this.
 
@@ -38,11 +40,12 @@ Two ways to protect a push endpoint: rely on Cloud Run IAM (`roles/run.invoker` 
 
 ## Steps
 
-You need a disposable project you can bill, `gcloud`, `terraform` and `docker`. These steps change your project. Run them yourself, from this folder.
+You need a disposable project you can bill, `gcloud`, `terraform` and `docker`. These steps change your project. Run them yourself. Every command assumes your shell is in this folder (`03-pii-safe-inbox`); `terraform -chdir=terraform` and `docker build .` depend on it.
 
 1. Pick the project and give Terraform credentials:
    ```bash
    gcloud config set project YOUR_PROJECT_ID
+   gcloud auth login
    gcloud auth application-default login
    ```
    Terraform uses these Application Default Credentials. Your user needs to create service accounts, IAM bindings, Pub/Sub, Cloud Run, Firestore and Artifact Registry resources, and `iam.serviceAccounts.actAs` on the two service accounts it creates (Cloud Run runs as one, Pub/Sub push signs as the other). In a disposable project the Owner role covers all of it. In a shared one, ask for the narrower roles.
@@ -76,11 +79,11 @@ You need a disposable project you can bill, `gcloud`, `terraform` and `docker`. 
    gcloud pubsub topics publish support-emails --message "Hi, I am Jo Smith, jo@example.com, phone +44 7700 900123. My card 4111 1111 1111 1111 was charged twice. Please fix today."
    ```
 7. In the Firestore console open the `tickets` collection. The document id is the Pub/Sub message id and holds `category`, `urgency` and `summary`. The Cloud Run logs show the message id and outcome but no text.
-8. See the dead letter path with the same invented message: deploy with a wrong `GEMINI_LOCATION`, publish, and after about 5 attempts pull the message (it is the unredacted original, see above):
+8. See the dead letter path with the same invented message: redeploy with a wrong Gemini location (`terraform -chdir=terraform apply -var project_id=YOUR_PROJECT_ID -var image=$IMAGE -var gemini_location=invalid-location`), publish, and after about 5 attempts pull the message (it is the unredacted original, see above):
    ```bash
    gcloud pubsub subscriptions pull support-emails-dead-letter-pull --limit=1
    ```
-   The message stays in the subscription until it is acknowledged or expires in 7 days.
+   The message stays in the subscription until it is acknowledged or expires in 7 days, so repeating the pull shows the same message again. Reset with `-var gemini_location=global`.
 
 ## Clean up
 

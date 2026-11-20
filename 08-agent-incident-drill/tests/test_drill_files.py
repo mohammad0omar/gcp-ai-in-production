@@ -36,6 +36,8 @@ def test_runbook_contains_complete_queries_and_commands():
     assert "set -o pipefail" in text
     assert "--update-env-vars=DRILL_FAULT=wrong_currency" in text
     assert "--remove-env-vars=DRILL_FAULT" in text
+    assert "update-traffic $SERVICE --region $REGION --to-revisions=$BASELINE_REV=100" in text
+    assert "jq -n --arg" in text
 
 
 def test_drill_prompts_leave_currency_to_the_lookup():

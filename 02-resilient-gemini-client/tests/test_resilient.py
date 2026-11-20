@@ -161,3 +161,19 @@ def test_retry_after_asctime_date_is_utc_not_local(monkeypatch):
     finally:
         monkeypatch.undo()
         time.tzset()
+
+
+def test_httpx2_timeout_is_retried_when_installed(clock):
+    from resilient_gemini import classify
+
+    class FakeTimeout(Exception):
+        pass
+
+    # Simulate httpx2 being importable by adding its timeout type to the lookup tuple.
+    original = classify._TIMEOUT_TYPES
+    classify._TIMEOUT_TYPES = (*original, FakeTimeout)
+    try:
+        assert classify.is_retryable(FakeTimeout())
+        assert run(FakeClient([FakeTimeout(), ok_response()]), clock).attempts == 2
+    finally:
+        classify._TIMEOUT_TYPES = original

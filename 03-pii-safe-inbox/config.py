@@ -17,6 +17,9 @@ DLP_LOCATION = os.environ.get("DLP_LOCATION", "global")
 # Built-in infoTypes that are redacted before any model sees the text.
 INFO_TYPES = ["EMAIL_ADDRESS", "PHONE_NUMBER", "CREDIT_CARD_NUMBER", "PERSON_NAME"]
 
+# The one push subscription this service accepts (see terraform/main.tf).
+SUBSCRIPTION_NAME = "support-emails-push"
+
 # Raw emails longer than this are not processed (see README). Keeps one call small.
 MAX_RAW_CHARS = 20_000
 

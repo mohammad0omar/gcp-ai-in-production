@@ -53,8 +53,11 @@ def save_ticket(message_id: str, ticket: dict) -> bool:
     return _finish(TICKETS, message_id, ticket)
 
 
-def save_needs_review(message_id: str, reason: str, redacted_text: str | None) -> bool:
+def save_needs_review(
+    message_id: str, reason: str, redacted_text: str | None, source: dict
+) -> bool:
     # Only redacted text is ever stored, and not even that when DLP may have missed something.
-    return _finish(
-        NEEDS_REVIEW, message_id, {"reason": reason, "redacted_text": redacted_text}
-    )
+    # `source` (subscription, message id, publish time) lets a person find the original in the
+    # dead letter or push subscription while it is retained, without storing the email here.
+    data = {"reason": reason, "redacted_text": redacted_text, "source": source}
+    return _finish(NEEDS_REVIEW, message_id, data)

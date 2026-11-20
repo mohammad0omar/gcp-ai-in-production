@@ -33,8 +33,9 @@ locals {
     admin  = local.sql_roles
     ingest = concat(local.sql_roles, ["roles/aiplatform.user"]) # Agent Platform User: embeddings
     api = concat(local.sql_roles, [
-      "roles/aiplatform.user",        # Agent Platform User: embeddings and Gemini
-      "roles/telemetry.tracesWriter", # write spans to Cloud Trace
+      "roles/aiplatform.user",                   # Agent Platform User: embeddings and Gemini
+      "roles/telemetry.tracesWriter",            # write spans to Cloud Trace
+      "roles/serviceusage.serviceUsageConsumer", # the Trace setup page names it for the quota project
     ])
   }
   role_bindings = merge([
@@ -167,22 +168,25 @@ resource "google_project_iam_member" "runtime" {
 # Only the admin user is a superuser role member: CREATE EXTENSION needs cloudsqlsuperuser.
 # The other two start with no rights; rag/bootstrap.py grants them SELECT (api) or write (ingest).
 resource "google_sql_user" "admin" {
-  name           = local.db_users["admin"]
-  instance       = google_sql_database_instance.main.name
-  type           = "CLOUD_IAM_SERVICE_ACCOUNT"
-  database_roles = ["cloudsqlsuperuser"]
+  deletion_policy = "ABANDON" # Postgres cannot delete users that hold SQL roles; the instance delete removes them
+  name            = local.db_users["admin"]
+  instance        = google_sql_database_instance.main.name
+  type            = "CLOUD_IAM_SERVICE_ACCOUNT"
+  database_roles  = ["cloudsqlsuperuser"]
 }
 
 resource "google_sql_user" "ingest" {
-  name     = local.db_users["ingest"]
-  instance = google_sql_database_instance.main.name
-  type     = "CLOUD_IAM_SERVICE_ACCOUNT"
+  deletion_policy = "ABANDON" # Postgres cannot delete users that hold SQL roles; the instance delete removes them
+  name            = local.db_users["ingest"]
+  instance        = google_sql_database_instance.main.name
+  type            = "CLOUD_IAM_SERVICE_ACCOUNT"
 }
 
 resource "google_sql_user" "api" {
-  name     = local.db_users["api"]
-  instance = google_sql_database_instance.main.name
-  type     = "CLOUD_IAM_SERVICE_ACCOUNT"
+  deletion_policy = "ABANDON" # Postgres cannot delete users that hold SQL roles; the instance delete removes them
+  name            = local.db_users["api"]
+  instance        = google_sql_database_instance.main.name
+  type            = "CLOUD_IAM_SERVICE_ACCOUNT"
 }
 
 # Cloud Build: one bucket for source and logs, one build identity with only what a build needs.
@@ -237,7 +241,7 @@ resource "google_cloud_run_v2_service" "api" {
 
   template {
     service_account = google_service_account.api.email
-    timeout         = "90s" # the worst-case time budget in config.py adds up to 86s
+    timeout         = "120s" # outer bound; the nominal sum of per-operation timeouts in config.py is 89s
 
     scaling {
       max_instance_count = 5

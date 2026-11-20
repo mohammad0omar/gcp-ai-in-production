@@ -13,12 +13,17 @@ import requests
 
 GOLDEN = Path(__file__).with_name("golden.json")
 PASS_MARK = 8
+REQUEST_TIMEOUT_SECONDS = 120  # matches the 120s Cloud Run timeout of the service
 
 
 def score(golden: list[dict], ask: Callable[[str], dict]) -> int:
     hits = 0
     for item in golden:
-        answer = ask(item["question"]).get("answer", "")
+        try:
+            answer = ask(item["question"]).get("answer", "")
+        except requests.RequestException as exc:
+            print(f"failed: {item['question']!r}: {exc}")  # one HTTP error is one failed case
+            continue
         hits += f"[{item['expected_doc']}]" in answer
     return hits
 
@@ -33,7 +38,7 @@ def main(url: str) -> int:
 
     def ask(question: str) -> dict:
         response = requests.post(
-            f"{url}/ask", json={"question": question}, headers=headers, timeout=60
+            f"{url}/ask", json={"question": question}, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS
         )
         response.raise_for_status()
         return response.json()

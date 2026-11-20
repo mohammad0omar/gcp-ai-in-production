@@ -56,3 +56,11 @@ def test_missing_credentials_fail_at_startup(monkeypatch):
     monkeypatch.setattr(main.google.auth, "default", no_adc)
     with pytest.raises(google.auth.exceptions.DefaultCredentialsError), TestClient(main.app):
         pass
+
+
+def test_empty_text_is_502_not_empty_summary(monkeypatch):
+    client, _ = make_client(monkeypatch, [ok_response("")])
+    with client:
+        response = client.post("/summarise", json={"text": "x"})
+    assert response.status_code == 502
+    assert response.json() == {"error": "model returned no text"}

@@ -17,7 +17,7 @@ Production touches a codelab skips: private IP only, IAM database authentication
 
 ## Steps
 
-You need a project you can bill, `gcloud` and `terraform`. These steps change your project. Run them yourself, from this folder (`06-production-rag-api`). A dedicated project for the tutorial is best, because Clean up can then end with deleting the whole project.
+Prerequisites: a project you can bill, `gcloud`, `terraform`, and `uv` with Python 3.12 or newer (for the eval in step 8). Open a terminal and `cd` into this folder (`06-production-rag-api`) before step 1; every command assumes it. These steps change your project. Run them yourself. A dedicated project for the tutorial is best, because Clean up can then end with deleting the whole project.
 
 1. Sign in twice. `gcloud auth login` is for the CLI. Terraform uses Application Default Credentials, which need their own sign-in. Then pick the project and one region for every command below:
    ```bash
@@ -60,15 +60,14 @@ You need a project you can bill, `gcloud` and `terraform`. These steps change yo
    ```
 6. Create the schema, then load the documents. The database has no public address, so both run as Cloud Run jobs inside the VPC. The bootstrap job runs as the admin identity (the only one that may `CREATE EXTENSION vector`) and grants the API identity `SELECT` and the ingest identity write access. The ingest job then makes the table match `docs/` exactly (changed documents replaced, removed documents deleted). The documents are baked into the image. To re-ingest after editing `docs/`, rebuild the image with a new tag, point the job at it, then execute it:
    ```bash
-   gcloud run jobs execute rag-bootstrap --region "$REGION" --wait
-   gcloud run jobs execute rag-ingest --region "$REGION" --wait
+   gcloud run jobs execute rag-bootstrap --region "$REGION" --wait \
+     && gcloud run jobs execute rag-ingest --region "$REGION" --wait
    ```
-   Re-ingest later (new tag `v2`, rebuilt as in step 4):
+   The `&&` matters: ingest must not run if bootstrap failed.
+   To re-ingest after editing `docs/`, Terraform owns the image, so go through it: rebuild as in step 4 with a new tag, then run the step 5 `terraform apply` again with `-var "image=$REPO/rag:v2"` (this updates the service and both jobs), then execute the ingest job again:
    ```bash
-   gcloud run jobs update rag-ingest --region "$REGION" --image "$REPO/rag:v2"
    gcloud run jobs execute rag-ingest --region "$REGION" --wait
    ```
-   Also update the service to `v2` (`terraform apply ... -var image=...`) so both run the same code.
 7. Ask a question. The service is private, so the call carries your identity token:
    ```bash
    URL=$(gcloud run services describe rag-api --region "$REGION" --format 'value(status.url)')
@@ -82,6 +81,7 @@ You need a project you can bill, `gcloud` and `terraform`. These steps change yo
    ```bash
    ID_TOKEN=$(gcloud auth print-identity-token) uv run python -m eval.run_eval "$URL"
    ```
+   One failed HTTP call counts as one failed question, and each call times out after 120 seconds like the service. In CI, use a service account that holds `roles/run.invoker` and mint the token for this service: `gcloud auth print-identity-token --impersonate-service-account=SA_EMAIL --audiences="$URL"`.
    If it fails, tune `MAX_DISTANCE` in `config.py` first, then the chunk size.
 9. Open Cloud Trace in the console and look for the `embed`, `search` and `generate` spans.
 
@@ -91,8 +91,9 @@ Notes on choices:
 
 - Three identities, each a Cloud SQL IAM service account user (named by the email without `.gserviceaccount.com`): `rag-admin` (cloudsqlsuperuser, runs bootstrap only), `rag-ingest` (write on `chunks`) and `rag-api` (`SELECT` only). All three hold `roles/cloudsql.client` and `roles/cloudsql.instanceUser`. Gemini access (`roles/aiplatform.user`, Agent Platform User) goes to ingest and api; `roles/telemetry.tracesWriter` only to api.
 - A returned citation is a reference check: every `[doc_id]` in the answer must be a document we retrieved, and the answer must cite at least one. It does not prove each claim is supported by the text. The question and excerpts are labelled as untrusted data in the prompt.
-- Time budget (best effort, per-operation timeouts, not a hard wall-clock limit; the Cloud Run timeout is the outer bound and a request that reaches it returns 504): each Gemini call has an 8 second timeout and at most two retries (jittered backoff), the query has a 5 second statement timeout, the connector connect timeout is 30 seconds, and Cloud Run allows 90 seconds: expected worst case 30 + 2 x (3 x 8 + 1.5) + 5 = 86 seconds (`config.py`). Gemini, transport and database failures at any stage return `503` with `Retry-After`.
+- Time budget (best effort, per-operation timeouts, not a hard wall-clock limit; the Cloud Run timeout is the outer bound and a request that reaches it returns 504; the 89 second figure is a nominal sum, not a worst case): each Gemini call has an 8 second timeout and at most two retries (jittered backoff), the query has a 5 second statement timeout, the connector connect timeout is 30 seconds, and Cloud Run allows 120 seconds: nominal sum 30 + 2 x (3 x 8 + 3) + 5 = 89 seconds (`config.py`; retries wait 1 and 2 seconds with jitter). Gemini, transport and database failures at any stage return `503` with `Retry-After`.
 - A citation names a document, not a chunk. Chunk-level citation (distinct excerpt ids validated before rendering) is a possible extension.
+- Embeddings are sent in batches under the embeddings page limits (250 texts and 20,000 tokens per request, tokens approximated as 1.5 x words). An empty document stops ingest before anything is written.
 - Known limit: two ingest runs at the same time can interleave. Run one at a time.
 - Embeddings use 768 dimensions, not the 3072 default, because pgvector cannot put an HNSW index on more than 2000.
 

@@ -46,5 +46,5 @@ def test_time_budget_fits_both_deadlines():
         + FIRESTORE_TIMEOUT_S * FIRESTORE_CALLS
     )
     assert worst < REQUEST_TIMEOUT_S < ACK_DEADLINE_S
-    assert f'timeout         = "{REQUEST_TIMEOUT_S}s"' in TF
+    assert re.search(rf'timeout\s+= "{REQUEST_TIMEOUT_S}s"', TF)
     assert f"ack_deadline_seconds       = {ACK_DEADLINE_S}" in TF

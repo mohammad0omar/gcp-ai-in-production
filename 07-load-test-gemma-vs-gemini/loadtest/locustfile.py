@@ -27,12 +27,15 @@ from loadtest.streams import StreamResult, read_gemini_stream, read_gemma_stream
 
 # One fixed prompt. Your numbers depend on prompt and answer sizes; change this to your own tickets.
 PROMPT = (
-    "Tag this support ticket with one category and one urgency. "
+    "Tag this support ticket. Answer exactly as: Category: <one word>. Urgency: <low, medium or high>. "
     "Ticket: My invoice for March shows two charges and the app crashes when I open it."
 )
 MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "128"))
-STREAM_DEADLINE_S = 60.0  # whole answer; checked between chunks
-READ_TIMEOUT_S = 10.0  # one stalled read; httpx applies it to each chunk, so a stall cannot pass the deadline by much
+# Time limits are NOT one hard wall-clock cutoff. Gemma: a 10 second timeout on each read plus a
+# check against the 60 second deadline between chunks. Gemini: the SDK's 60 second HTTP timeout
+# plus the same between-chunk check. A request can overrun 60 seconds by up to one read.
+STREAM_DEADLINE_S = 60.0
+READ_TIMEOUT_S = 10.0
 
 # Custom event: listeners get side, ttft_s, tokens_per_second, visible_tokens, billed_tokens, ok, started_at.
 stream_metrics = EventHook()
@@ -40,7 +43,7 @@ _RECORDS_PATH = new_records_path()
 
 
 @stream_metrics.add_listener
-def _write_row(side, ttft_s, tokens_per_second, visible_tokens, billed_tokens, ok, started_at, **_kw):
+def _write_row(side, ttft_s, tokens_per_second, visible_tokens, billed_tokens, ok, started_at, status, **_kw):
     append_record(
         _RECORDS_PATH,
         {
@@ -52,8 +55,15 @@ def _write_row(side, ttft_s, tokens_per_second, visible_tokens, billed_tokens, o
             "started_at": f"{started_at:.3f}",
             "ended_at": f"{time.time():.3f}",
             "ok": int(ok),
+            "status": status,
         },
     )
+
+
+def _status_of(error: Exception) -> str:
+    """HTTP status code if the error has one (httpx or google-genai), else the error class name."""
+    code = getattr(getattr(error, "response", None), "status_code", None) or getattr(error, "code", None)
+    return str(code) if code else type(error).__name__
 
 
 def _finish(environment, side: str, started_at: float, start: float, result: StreamResult) -> None:
@@ -76,6 +86,7 @@ def _finish(environment, side: str, started_at: float, start: float, result: Str
         billed_tokens=result.billed_tokens,
         ok=result.ok,
         started_at=started_at,
+        status=result.status or ("200" if result.ok else (result.error or "failed")),
     )
 
 
@@ -106,7 +117,7 @@ class GemmaUser(User):
                 response.raise_for_status()
                 result = read_gemma_stream(response.iter_lines(), start + STREAM_DEADLINE_S)
         except httpx.HTTPError as error:
-            result = StreamResult(error=str(error))
+            result = StreamResult(error=str(error), status=_status_of(error))
         _finish(self.environment, "gemma", started_at, start, result)
 
 
@@ -146,5 +157,5 @@ class GeminiUser(User):
             )
             result = read_gemini_stream(stream, start + STREAM_DEADLINE_S)
         except Exception as error:  # noqa: BLE001 - any SDK or network error is a failed request
-            result = StreamResult(error=str(error))
+            result = StreamResult(error=str(error), status=_status_of(error))
         _finish(self.environment, "gemini", started_at, start, result)

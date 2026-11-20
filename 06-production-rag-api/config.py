@@ -23,12 +23,16 @@ MAX_DISTANCE = float(os.environ.get("MAX_DISTANCE", "0.45"))
 
 TOP_K_DEFAULT = 5
 TOP_K_MAX = 20
-EMBED_BATCH_SIZE = 16
+# Embeddings page: at most 250 texts and 20,000 input tokens per request. We approximate tokens
+# as 1.5 x words, which errs on the safe side for English.
+EMBED_MAX_TEXTS_PER_BATCH = 250
+EMBED_TOKEN_BUDGET = 20_000
+TOKENS_PER_WORD = 1.5
 CHUNK_SIZE_WORDS = 800
 CHUNK_OVERLAP_WORDS = 120
-# Best-effort budget for one /ask (per-operation timeouts, not a hard wall-clock limit; Cloud Run's
-# request timeout is the outer bound). Expected worst case: connect 30s + 2 x (3 tries x 8s + 1.5s backoff) + search 5s = 86s,
-# under the 90s Cloud Run request timeout in terraform/main.tf.
+# Nominal sum of per-operation timeouts for one /ask (not a hard limit; Cloud Run's request timeout
+# of 120s in terraform/main.tf is the outer bound): connect 30s + 2 x (3 tries x 8s + 3s backoff)
+# + search 5s = 89s.
 GENAI_TIMEOUT_SECONDS = 8
 GENAI_MAX_ATTEMPTS = 3  # the first try plus two retries, as Google recommends at most
 CONNECT_TIMEOUT_SECONDS = 30

@@ -66,6 +66,9 @@ def summarise(doc: Document, request: Request):
     except NonRetryableError:
         # Our request was rejected. Do not leak the upstream message to the caller.
         return JSONResponse({"error": "upstream rejected the request"}, status_code=502)
+    if not result.text.strip():
+        # Gemini can finish with no text (for example a safety stop). Do not call that a summary.
+        return JSONResponse({"error": "model returned no text"}, status_code=502)
     return {
         "summary": result.text,
         "model_used": result.model_used,

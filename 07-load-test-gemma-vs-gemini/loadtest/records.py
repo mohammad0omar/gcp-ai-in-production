@@ -14,6 +14,7 @@ FIELDS = [
     "started_at",
     "ended_at",
     "ok",
+    "status",
 ]
 
 

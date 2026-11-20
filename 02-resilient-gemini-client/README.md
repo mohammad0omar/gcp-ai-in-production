@@ -33,7 +33,8 @@ Use a dedicated project for this tutorial, so cleanup is one command and cannot 
 3. Sign in with Application Default Credentials (ADC). Be aware: `gcloud auth application-default login` **replaces** any ADC you already have on this machine and `set-quota-project` changes its quota project, and deleting the project later does not restore them. To keep your own ADC untouched, use a separate gcloud configuration directory for this tutorial, in the same shell:
 
    ```bash
-   export CLOUDSDK_CONFIG=$(mktemp -d)   # a throwaway gcloud config just for this tutorial
+   export SALTMARSH_GCLOUD_DIR=$(mktemp -d)   # a throwaway gcloud config just for this tutorial
+   export CLOUDSDK_CONFIG=$SALTMARSH_GCLOUD_DIR
    unset GOOGLE_APPLICATION_CREDENTIALS  # it takes precedence over the ADC file, so it would hide the login below
    gcloud auth login
    gcloud auth application-default login
@@ -45,16 +46,22 @@ Use a dedicated project for this tutorial, so cleanup is one command and cannot 
 
    If you are the project owner you already have enough access. For a dedicated runtime identity (a service account), the inference permission is `aiplatform.endpoints.predict`; the predefined role `roles/aiplatform.user` (Agent Platform User) contains it but also grants more, so use a custom role with only that permission when you can. Setting up the project (enabling APIs, linking billing) needs separate admin permissions, and the caller must be allowed to use the quota project (`serviceusage.services.use`).
 
-4. Install and run the tests:
+4. Install [uv](https://docs.astral.sh/uv/), enter this folder, and run the tests:
 
    ```bash
+   cd 02-resilient-gemini-client
    uv run pytest tests -q
    ```
 
-5. Start the demo and call it. This is a loopback demo: it has no authentication and Uvicorn binds to 127.0.0.1 by default. Do not expose it on a network, or anyone who can reach it spends your model budget.
+5. Start the demo and call it. This is a loopback demo: it has no authentication and the command below binds to 127.0.0.1. Do not expose it on a network, or anyone who can reach it spends your model budget.
 
    ```bash
-   uv run uvicorn app.main:app --port 8080
+   uv run uvicorn app.main:app --host 127.0.0.1 --port 8080
+   ```
+
+   In a second terminal:
+
+   ```bash
    curl -s localhost:8080/summarise -H 'content-type: application/json' \
      -d '{"text": "Saltmarsh Docs stores contracts. Contracts have owners and renewal dates."}'
    ```
@@ -119,11 +126,11 @@ Everything was created in the dedicated project, so delete it. This removes the 
 gcloud projects delete $PROJECT_ID
 ```
 
-Then undo the local changes. If you used a separate `CLOUDSDK_CONFIG`, delete that directory and unset the variables; your own ADC was never touched:
+Then undo the local changes. If you used a separate config directory in `SALTMARSH_GCLOUD_DIR`, delete it only if it is under the temp dir (the check below does that) and unset the variables; your own ADC was never touched:
 
 ```bash
-rm -rf "$CLOUDSDK_CONFIG"
-unset CLOUDSDK_CONFIG GOOGLE_CLOUD_PROJECT PROJECT_ID
+case "$SALTMARSH_GCLOUD_DIR" in "${TMPDIR:-/tmp}"*) rm -rf "$SALTMARSH_GCLOUD_DIR" ;; *) echo "not a temp dir, not deleting" ;; esac
+unset SALTMARSH_GCLOUD_DIR CLOUDSDK_CONFIG GOOGLE_CLOUD_PROJECT PROJECT_ID
 ```
 
 If you skipped the separate config and logged in over your existing ADC, run `gcloud auth application-default login` again with your own account to restore it.

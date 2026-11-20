@@ -58,7 +58,7 @@ resource "google_bigquery_dataset" "dashboard" {
 resource "google_logging_project_sink" "ai_usage" {
   name                   = "ai-usage-to-bigquery"
   destination            = "bigquery.googleapis.com/projects/${var.project_id}/datasets/${google_bigquery_dataset.usage_logs.dataset_id}"
-  filter                 = "logName=\"projects/${var.project_id}/logs/run.googleapis.com%2Fstdout\" AND jsonPayload.event=\"ai_usage\""
+  filter                 = "logName=\"projects/${var.project_id}/logs/run.googleapis.com%2Fstdout\" AND resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"tidewell-ai\" AND jsonPayload.event=\"ai_usage\""
   unique_writer_identity = true
 
   bigquery_options {
@@ -66,11 +66,12 @@ resource "google_logging_project_sink" "ai_usage" {
   }
 }
 
-# Least privilege: the sink identity can edit data in this one dataset only.
-resource "google_bigquery_dataset_iam_member" "sink_writer" {
+# Least privilege: the sink identity can edit data in this one dataset only. This uses the dataset
+# access list, like the authorized views below, so the two never overwrite each other.
+resource "google_bigquery_dataset_access" "sink_writer" {
   dataset_id = google_bigquery_dataset.usage_logs.dataset_id
   role       = "roles/bigquery.dataEditor"
-  member     = google_logging_project_sink.ai_usage.writer_identity
+  iam_member = google_logging_project_sink.ai_usage.writer_identity
 }
 
 # Runtime identity of the demo service: Gemini calls only, plus its one secret.

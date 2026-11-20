@@ -41,5 +41,6 @@ def test_service_account_is_deleted_only_if_the_script_created_it():
         assert "value(uniqueId)" in text
         assert '"$RUNTIME_SA $CURRENT_ID"' in text
     assert 'echo "$RUNTIME_SA $NEW_ID" > "$MARKER"' in deploy
-    # A failed service delete must not skip the account cleanup.
-    assert "set -e" not in delete
+    # The account goes only after the service delete succeeded and the service is confirmed gone.
+    assert delete.index("services describe") < delete.index("service-accounts delete")
+    assert 'if [ "$status" -ne 0 ]' in delete

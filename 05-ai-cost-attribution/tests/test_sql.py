@@ -116,3 +116,37 @@ def test_terraform_authorizes_all_four_views():
         "dashboard",
     ):
         assert f'table_id   = "{table}"' in tf
+
+
+def test_reconcile_has_per_sku_breakdown_of_excluded_spend():
+    parsed = sqlglot.parse(read("05_reconcile.sql"), dialect="bigquery")
+    assert len([p for p in parsed if p]) == 2
+    text = read("05_reconcile.sql")
+    assert (
+        "NOT IN ('SKU_ID_1', 'SKU_ID_2')" in text
+        and "AS charges" in text
+        and "AS credits" in text
+    )
+
+
+def test_sink_writer_uses_dataset_access_and_narrow_filter():
+    tf = (SQL_DIR.parent / "terraform" / "main.tf").read_text()
+    assert "google_bigquery_dataset_iam_member" not in tf
+    assert 'resource "google_bigquery_dataset_access" "sink_writer"' in tf
+    assert (
+        "writer_identity" in tf and "cloud_run_revision" in tf and "tidewell-ai" in tf
+    )
+
+
+def test_readme_pins_secret_and_passes_project():
+    readme = (SQL_DIR.parent / "README.md").read_text()
+    assert ":latest" not in readme and "SALT_VERSION" in readme
+    assert (
+        "get-default-service-account" in readme
+        and "remove-iam-policy-binding" in readme
+    )
+    for line in readme.splitlines():
+        if line.strip().startswith(
+            ("gcloud run", "gcloud secrets", "gcloud services enable")
+        ):
+            assert "--project" in line, line

@@ -36,6 +36,8 @@ def prepare(docs_dir: Path) -> list[dict]:
     for path in sorted(docs_dir.glob("*.txt")):
         jurisdiction, body = read_document(path)
         parts = chunk(body)
+        if not parts:
+            raise ValueError(f"{path.name} has no text; fix or remove it before ingesting")
         vectors = embed_documents(parts)
         prepared.append(
             {"doc_id": path.stem, "jurisdiction": jurisdiction, "parts": parts, "vectors": vectors}

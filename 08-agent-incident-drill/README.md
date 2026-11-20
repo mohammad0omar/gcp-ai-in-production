@@ -26,7 +26,7 @@ Production touches that a codelab skips:
 
 ## Steps
 
-Use a disposable project. These steps create resources and IAM grants, and Clean up ends with deleting the project. You need billing on that project, `gcloud`, `terraform`, `jq`, and an account that can administer the project (Owner is simplest in a throwaway project).
+Open a terminal in this folder (`08-agent-incident-drill`) first. The commands below use paths relative to it. Use a disposable project. These steps create resources and IAM grants, and Clean up ends with deleting the project. You need billing on that project, `gcloud`, `terraform`, `jq`, and an account that can administer the project (Owner is simplest in a throwaway project).
 
 1. Sign in, and also create Application Default Credentials, because Terraform reads those, not your `gcloud` login:
    ```bash
@@ -57,7 +57,7 @@ Use a disposable project. These steps create resources and IAM grants, and Clean
    cd ..
    ```
    If you are not Owner, you also need permission to grant project roles and set the project's audit config.
-4. Let the source build work. Source deploys are built by the default Cloud Build service account, which needs `roles/run.builder`. If you are not Owner, you also need `roles/run.sourceDeveloper`, `roles/serviceusage.serviceUsageConsumer` on the project and `roles/iam.serviceAccountUser` on the runtime service account.
+4. Let the source build work. Source deploys are built by the default Cloud Build service account, which needs `roles/run.builder`. If you are not Owner, you also need `roles/run.sourceDeveloper`, `roles/serviceusage.serviceUsageConsumer` on the project and `roles/iam.serviceAccountUser` on the runtime service account. Step 6 below also needs `run.services.setIamPolicy` (in `roles/run.admin`) to grant the invoker role.
    Find the account first. Run `gcloud builds get-default-service-account`, copy the email it shows, and use it below:
    ```bash
    BUILD_SA=THE_EMAIL_FROM_THE_COMMAND
@@ -90,7 +90,7 @@ Use a disposable project. These steps create resources and IAM grants, and Clean
    curl -sS --fail-with-body -X POST "$URL/run" \
      -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
      -H "Content-Type: application/json" \
-     -d '{"app_name":"pebble_support","user_id":"me","session_id":"s1","new_message":{"role":"user","parts":[{"text":"Refund 1500 minor units on order PP-1003"}]}}'
+     -d '{"app_name":"pebble_support","user_id":"me","session_id":"s1","new_message":{"role":"user","parts":[{"text":"Look up order PP-1003"}]}}'
    ```
    Only give the invoker role to trusted drill operators. The raw ADK API accepts any user and session id the caller sends.
 7. Open Logs Explorer and Trace Explorer and find that request. Then do the drill in [`drill/README.md`](drill/README.md). It injects `DRILL_FAULT=wrong_currency`, shows you the signal, and rolls back.

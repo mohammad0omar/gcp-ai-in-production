@@ -86,14 +86,21 @@ steps:
         set -euo pipefail
         # Only continue from a clean state: one revision serving 100%. Anything else means another
         # rollout is in progress or a rollback is needed by hand.
-        PCT0=$$(gcloud run services describe "$$SERVICE" --region "$$REGION" --format='value(status.traffic[0].percent)')
-        PCT1=$$(gcloud run services describe "$$SERVICE" --region "$$REGION" --format='value(status.traffic[1].percent)')
-        if [ "$$PCT0" != "100" ] || [ -n "$$PCT1" ]; then
-          echo "Traffic is not a single 100% revision. Finish or roll back the other rollout first."
-          exit 1
-        fi
-        gcloud run services describe "$$SERVICE" --region "$$REGION" \
-          --format='value(status.traffic[0].revisionName)' > /workspace/previous_revision
+        # Prints the revisions that carry traffic, as sorted "name percent;" items. Tag-only entries (0 or no
+        # percent) are ignored, so a tag never counts as traffic.
+        split_of() {
+          gcloud run services describe "$$SERVICE" --region "$$REGION" \
+            --format='value(status.traffic[0].revisionName,status.traffic[0].percent,status.traffic[1].revisionName,status.traffic[1].percent,status.traffic[2].revisionName,status.traffic[2].percent,status.traffic[3].revisionName,status.traffic[3].percent,status.traffic[4].revisionName,status.traffic[4].percent,status.traffic[5].revisionName,status.traffic[5].percent)' \
+            | awk -F'\t' '{ for (i = 1; i < NF; i += 2) if ($$(i + 1) + 0 > 0) print $$i, $$(i + 1) }' | sort | tr '\n' ';'
+        }
+        # Only continue from a clean state: exactly one revision serving 100%. Anything else means another
+        # rollout is in progress or a rollback is needed by hand. Tag-only entries do not count.
+        SPLIT="$$(split_of)"
+        case "$$SPLIT" in
+          *" 100;") ;;
+          *) echo "Traffic is '$$SPLIT', not a single 100% revision. Finish or roll back the other rollout first."; exit 1 ;;
+        esac
+        echo "$${SPLIT% 100;}" > /workspace/previous_revision
         SUFFIX="c$$(echo "$$BUILD_ID" | cut -c1-8)"
         echo "$$SERVICE-$$SUFFIX" > /workspace/candidate.txt
         gcloud run deploy "$$SERVICE" --region "$$REGION" \

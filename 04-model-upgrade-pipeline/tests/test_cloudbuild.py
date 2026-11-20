@@ -90,14 +90,15 @@ def test_substitutions_are_not_pasted_into_shell_source():
 
 
 def test_deploy_refuses_a_traffic_split(tmp_path):
-    result, calls = run_step("deploy-candidate", tmp_path, {"FAKE_PCT0": "90", "FAKE_PCT1": "10"})
+    result, calls = run_step("deploy-candidate", tmp_path, {"FAKE_SPLIT": "svc-00001 90 svc-00002 10"})
     assert result.returncode == 1
     assert "run deploy" not in calls
 
 
 def test_deploy_runs_from_clean_state(tmp_path):
-    fake = {"FAKE_PCT0": "100", "FAKE_PCT1": "", "FAKE_SERVING": "svc-00001"}
+    fake = {"FAKE_SPLIT": "svc-00001 100 svc-ctagonly 0"}  # a tag-only entry with 0 percent is fine
     result, calls = run_step("deploy-candidate", tmp_path, fake)
+    assert (tmp_path / "workspace" / "previous_revision").read_text().strip() == "svc-00001"
     assert result.returncode == 0, result.stderr
     assert "--no-traffic" in calls and "--revision-suffix cabcdef12" in calls
     assert "MODEL_ID=gemini-3.8-flash,GOOGLE_CLOUD_PROJECT=proj" in calls

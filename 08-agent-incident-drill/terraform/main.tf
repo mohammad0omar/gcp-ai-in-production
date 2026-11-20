@@ -28,8 +28,8 @@ resource "google_service_account" "runtime" {
   depends_on = [google_project_service.api]
 }
 
-# The documented predefined role for calling Gemini (Agent Platform User).
-# A narrower custom role is possible but must be tested against a live call.
+# The documented predefined role for calling Gemini (Agent Platform User). It is broader
+# than model calls alone. A narrower custom role is possible but must be tested live.
 resource "google_project_iam_member" "runtime_model" {
   project = var.project_id
   role    = "roles/aiplatform.user"
@@ -45,6 +45,8 @@ resource "google_project_iam_member" "runtime_trace" {
 # Data Access audit logs for Gemini calls are off by default. generateContent is a
 # DATA_READ method, so DATA_READ is all this drill needs.
 # Admin Activity logs are always on and need no setting.
+# Careful: this resource is authoritative for this service's audit config. It replaces
+# any audit settings already on aiplatform.googleapis.com. Use a disposable project.
 resource "google_project_iam_audit_config" "agent_platform" {
   project = var.project_id
   service = "aiplatform.googleapis.com"

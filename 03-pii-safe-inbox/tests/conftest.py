@@ -125,13 +125,19 @@ def world(monkeypatch, env):
     )
 
 
-def push(world, message_id="m1", text=RAW, token=f"{AUDIENCE}|{PUSH_SA}"):
+def push(
+    world,
+    message_id="m1",
+    text=RAW,
+    token=f"{AUDIENCE}|{PUSH_SA}",
+    sub="projects/proj/subscriptions/support-emails-push",
+):
     body = {
         "message": {
             "data": base64.b64encode(text.encode()).decode(),
             "messageId": message_id,
         },
-        "subscription": "projects/proj/subscriptions/s",
+        "subscription": sub,
     }
     return world.client.post(
         "/pubsub", json=body, headers={"Authorization": f"Bearer {token}"}

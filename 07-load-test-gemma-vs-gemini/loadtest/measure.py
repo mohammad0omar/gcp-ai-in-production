@@ -11,7 +11,9 @@ def ttft_from_stream_timestamps(request_start: float, chunk_times: list[float]) 
 def output_tokens_per_second(output_tokens: int, chunk_times: list[float]) -> float | None:
     """Decode speed: tokens divided by the time between first and last chunk.
 
-    The wait for the first token is left out on purpose; it is the TTFT metric.
+    The wait for the first token is left out on purpose; it is the TTFT metric. This is an
+    APPROXIMATE streaming rate: a chunk can hold several tokens and the tokens of the first
+    chunk are counted although the span starts after it. Compare sides with that in mind.
     Returns None when the stream had fewer than two chunks or took no time.
     """
     if len(chunk_times) < 2:

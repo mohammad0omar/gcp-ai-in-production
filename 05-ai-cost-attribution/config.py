@@ -21,7 +21,7 @@ LABEL_CUSTOMER = "customer"
 # Label rules for Gemini requests: lowercase letters, digits, underscore, dash; 1 to 63 characters.
 LABEL_MAX_LEN = 63
 
-# The salt must be at least this long (a random 32 byte value is 43 base64 chars).
+# The salt must be at least this long (a random 32 byte value is 44 base64 chars, 43 without padding).
 MIN_SALT_CHARS = 32
 
 # Event name written in every usage log line. The log sink filter uses it.

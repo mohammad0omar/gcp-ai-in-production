@@ -21,7 +21,7 @@ ask() {
   curl -sS --fail-with-body -X POST "$URL/run" \
     -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
     -H "Content-Type: application/json" \
-    -d "{\"app_name\":\"pebble_support\",\"user_id\":\"drill\",\"session_id\":\"$1\",\"new_message\":{\"role\":\"user\",\"parts\":[{\"text\":\"$2\"}]}}" \
+    -d "$(jq -n --arg s "$1" --arg t "$2" '{app_name:"pebble_support",user_id:"drill",session_id:$s,new_message:{role:"user",parts:[{text:$t}]}}')" \
   | jq -c '.[] | .content.parts[]? | (.functionCall // .functionResponse // empty) | {name, args, response}'
 }
 ```
@@ -33,6 +33,15 @@ ask s-baseline-1 "Refund 1500 minor units on order PP-1003. Look up the order fi
 ```
 
 Expected output: a `lookup_order` call, its response with `"currency":"GBP"`, a `refund_order` call with `"currency":"GBP"`, and a response with `"status":"refunded"`. If you do not see that, stop and fix it before you inject anything.
+
+Optional alert, set up now, before the fault: in Logging, open Logs-based metrics and create a counter named `pebble-refund-refusals` from the refusal query in step 2, but without the `revision_name` line so it also catches later revisions. Then create an alerting policy on it in Monitoring. Remember to delete both at the end (see the main README, Clean up).
+
+Save the good revision. You will roll back to it in step 5:
+
+```bash
+export BASELINE_REV=$(gcloud run services describe $SERVICE --region $REGION --format='value(status.latestReadyRevisionName)')
+echo $BASELINE_REV
+```
 
 ## 1. Inject the fault
 
@@ -69,8 +78,6 @@ jsonPayload.tool="refund_order"
 ```
 
 Each tool call writes exactly one line with `tool`, `decision`, `reason` and `order_id`. A run of `currency_mismatch` with no change in traffic is the signal.
-
-Optional alert: in Logging, open Logs-based metrics and create a counter named `pebble-refund-refusals` from the first query, then create an alerting policy on it in Monitoring. Remember to delete both at the end (see the main README, Clean up).
 
 ## 3. Observe in Trace Explorer
 
@@ -114,18 +121,19 @@ Data Access logs can be large and cost money. Remove them when the drill is over
 
 ## 5. Roll back
 
-Remove the flag. This creates another revision, with the fault gone:
+Send all traffic back to the revision you saved before the fault. This is the fastest rollback and creates no new revision:
 
 ```bash
-gcloud run services update $SERVICE --region $REGION --remove-env-vars=DRILL_FAULT
-export GOOD_REV=$(gcloud run services describe $SERVICE --region $REGION --format='value(status.latestReadyRevisionName)')
-test "$GOOD_REV" != "$FAULT_REV" && echo "new revision: $GOOD_REV"
+gcloud run services update-traffic $SERVICE --region $REGION --to-revisions=$BASELINE_REV=100
+export GOOD_REV=$BASELINE_REV
 ask s-after-1 "Refund 1000 minor units on order PP-1001. Look up the order first and use the order's own currency."
 ```
 
 Expected output: the lookup shows `"currency":"GBP"` and the refund response is `"status":"refunded"`. PP-1001 was never refunded during the fault, because every attempt was refused. (The sample keeps refunds in memory, per instance. The service runs with `--max-instances 1` for that reason, so a second try on the same instance gives `already_refunded`. After a restart or a new revision the ledger is empty again.)
 
-Now check the logs. Run this on the new revision. It should show one `refunded` line and no `currency_mismatch`:
+Traffic is now pinned to `$BASELINE_REV`. To fix forward later, remove the flag with `gcloud run services update $SERVICE --region $REGION --remove-env-vars=DRILL_FAULT`, then return to the latest revision with `gcloud run services update-traffic $SERVICE --region $REGION --to-latest`.
+
+Now check the logs. Run this on the rollback revision. It should show one `refunded` line and no `currency_mismatch`:
 
 ```text
 resource.type="cloud_run_revision"

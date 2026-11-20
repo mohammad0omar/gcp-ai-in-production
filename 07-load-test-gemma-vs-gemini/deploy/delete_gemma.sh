@@ -14,7 +14,13 @@ echo "Deleting service ${SERVICE} in ${REGION} of project ${PROJECT}"
 gcloud run services delete "$SERVICE" --project "$PROJECT" --region "$REGION" --quiet
 status=$?
 
-# The service account goes even if the service delete failed, so an interrupted run leaves nothing.
+# Delete the account only after the service delete succeeded AND the service is confirmed gone;
+# a still-running service would lose its identity. If either check fails, run this script again.
+if [ "$status" -ne 0 ] || gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" >/dev/null 2>&1; then
+  echo "Service ${SERVICE} is not confirmed deleted. Keeping the service account. Run this script again." >&2
+  exit 1
+fi
+
 CURRENT_ID="$(gcloud iam service-accounts describe "$RUNTIME_SA" --project "$PROJECT" --format='value(uniqueId)' 2>/dev/null || true)"
 if [ -n "$CURRENT_ID" ] && [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$RUNTIME_SA $CURRENT_ID" ]; then
   if gcloud iam service-accounts delete "$RUNTIME_SA" --project "$PROJECT" --quiet; then

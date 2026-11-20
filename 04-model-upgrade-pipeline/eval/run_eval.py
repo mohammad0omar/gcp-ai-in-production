@@ -35,6 +35,7 @@ def run_eval(model: str, cases: list[dict], client, threshold: float) -> tuple[f
     """Run every case, print a table, return (mean score, exit code)."""
     print(f"{'case':<16}{'schema':<8}{'score':<6}")
     total = 0.0
+    malformed = 0
     for case in cases:
         try:
             raw = summarise(client, model, case["text"])
@@ -43,11 +44,14 @@ def run_eval(model: str, cases: list[dict], client, threshold: float) -> tuple[f
             continue
         score, schema_ok = score_answer(raw, case["expected"])
         total += score
+        malformed += 0 if schema_ok else 1
         print(f"{case['id']:<16}{'ok' if schema_ok else 'BAD':<8}{score:<6.2f}")
     mean = total / len(cases) if cases else 0.0
-    verdict = "PASS" if mean >= threshold else "FAIL"
-    print(f"model={model} score={mean:.3f} threshold={threshold} {verdict}")
-    return mean, 0 if mean >= threshold else 1
+    # Two gates: the mean score, and a schema gate where ONE malformed answer is enough to fail.
+    ok = mean >= threshold and malformed == 0
+    verdict = "PASS" if ok else "FAIL"
+    print(f"model={model} score={mean:.3f} threshold={threshold} malformed={malformed} {verdict}")
+    return mean, 0 if ok else 1
 
 
 def main(argv: list[str] | None = None, client=None) -> int:
