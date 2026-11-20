@@ -10,7 +10,17 @@ variable "region" {
 }
 
 variable "github_repo" {
-  description = "GitHub repository allowed to deploy, as owner/name."
+  description = "GitHub repository allowed to deploy, as owner/name. Only used in a description."
+  type        = string
+}
+
+variable "github_repository_id" {
+  description = "Numeric id of that repository: gh api repos/OWNER/NAME --jq .id"
+  type        = string
+}
+
+variable "github_owner_id" {
+  description = "Numeric id of the repository owner: gh api repos/OWNER/NAME --jq .owner.id"
   type        = string
 }
 

@@ -6,7 +6,9 @@ locals {
     "cloudresourcemanager.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
+    "orgpolicy.googleapis.com", # only used when block_key_creation = true
     "run.googleapis.com",
+    "serviceusage.googleapis.com", # enable it by hand first (README step 2)
     "sts.googleapis.com",
   ]
 }
@@ -48,6 +50,10 @@ resource "google_service_account" "runtime" {
 }
 
 # Deployer: deploy Cloud Run, push images, and act as the runtime account (below).
+# Cloud Run Admin, not Developer: the Cloud Run docs say changing invoker access (the
+# --no-allow-unauthenticated and --invoker-iam-check flags in the workflow) needs
+# run.services.setIamPolicy, which Developer lacks. Limitation: this covers every service in the
+# project, so use a project that only holds this service.
 resource "google_project_iam_member" "deploy_run_admin" {
   project = var.project_id
   role    = "roles/run.admin"
@@ -67,7 +73,7 @@ resource "google_service_account_iam_member" "deploy_acts_as_runtime" {
   member             = "serviceAccount:${google_service_account.deploy.email}"
 }
 
-# Runtime: only the role that lets it call Gemini.
+# Runtime: the predefined Agent Platform User role, which is the documented way to call Gemini.
 resource "google_project_iam_member" "runtime_gemini" {
   project = var.project_id
   role    = "roles/aiplatform.user"
@@ -86,15 +92,18 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   workload_identity_pool_id          = google_iam_workload_identity_pool.github.workload_identity_pool_id
   workload_identity_pool_provider_id = "github-oidc"
   display_name                       = "GitHub OIDC"
+  description                        = "Deploys from ${var.github_repo}, main branch only"
 
   attribute_mapping = {
-    "google.subject"       = "assertion.sub"
-    "attribute.repository" = "assertion.repository"
-    "attribute.ref"        = "assertion.ref"
+    "google.subject"                = "assertion.sub"
+    "attribute.repository_id"       = "assertion.repository_id"
+    "attribute.repository_owner_id" = "assertion.repository_owner_id"
+    "attribute.ref"                 = "assertion.ref"
   }
 
-  # Tokens from any other repository or branch are rejected before any impersonation.
-  attribute_condition = "assertion.repository == '${var.github_repo}' && assertion.ref == 'refs/heads/main'"
+  # Numeric ids cannot be reclaimed by a new repository with the same name.
+  # Tokens from any other repository, owner or branch are rejected before any impersonation.
+  attribute_condition = "assertion.repository_id == '${var.github_repository_id}' && assertion.repository_owner_id == '${var.github_owner_id}' && assertion.ref == 'refs/heads/main'"
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
@@ -105,7 +114,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
 resource "google_service_account_iam_member" "github_impersonates_deploy" {
   service_account_id = google_service_account.deploy.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository/${var.github_repo}"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository_id/${var.github_repository_id}"
 }
 
 # Optional: forbid creating service account keys at all. Needs the Organization Policy
@@ -113,12 +122,14 @@ resource "google_service_account_iam_member" "github_impersonates_deploy" {
 resource "google_org_policy_policy" "no_sa_keys" {
   count = var.block_key_creation ? 1 : 0
 
-  name   = "projects/${var.project_id}/policies/iam.managed.disableServiceAccountKeyCreation"
-  parent = "projects/${var.project_id}"
+  name   = "projects/${data.google_project.this.number}/policies/iam.managed.disableServiceAccountKeyCreation"
+  parent = "projects/${data.google_project.this.number}"
 
   spec {
     rules {
       enforce = "TRUE"
     }
   }
+
+  depends_on = [google_project_service.api]
 }

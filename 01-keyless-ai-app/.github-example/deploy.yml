@@ -1,4 +1,5 @@
-# Copy to .github/workflows/deploy.yml in your own repository.
+# Copy to .github/workflows/deploy.yml in your own repository. The repository root must hold
+# Dockerfile, config.py and app/ (copy them from this folder).
 # Set these repository variables (Settings > Secrets and variables > Actions > Variables):
 # GCP_PROJECT_ID, GCP_REGION, WORKLOAD_IDENTITY_PROVIDER, DEPLOY_SERVICE_ACCOUNT, RUNTIME_SERVICE_ACCOUNT.
 # They are names, not credentials. The workflow reads no repository secret.
@@ -7,38 +8,68 @@ name: deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch: # run it by hand on main to redeploy
 
 permissions:
   id-token: write # lets the job ask GitHub for an OIDC token
   contents: read
 
+# One deploy at a time (cancel-in-progress: false, so a running deploy is never cut off).
+# GitHub keeps only one waiting run per group, so a newer push can replace a queued one; that is
+# fine because the newest run deploys main. The check below stops an older rerun from deploying.
+concurrency:
+  group: deploy-note-summariser
+  cancel-in-progress: false
+
 env:
+  PROJECT: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  RUNTIME_SA: ${{ vars.RUNTIME_SERVICE_ACCOUNT }}
   IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/notes/note-summariser:${{ github.sha }}
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: google-github-actions/auth@v3
+      # Build first: the Google credentials below then live for less time.
+      - name: Build the image
+        run: docker build -t "$IMAGE" .
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ vars.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
 
-      - uses: google-github-actions/setup-gcloud@v3
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
 
-      - name: Build and push the image
+      - name: Push the image
         run: |
-          gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
-          docker build -t "$IMAGE" .
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
           docker push "$IMAGE"
 
+      - name: Skip if main has moved on
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head=$(gh api "repos/${{ github.repository }}/commits/main" --jq .sha)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "main moved to $head; a newer run deploys it." >&2
+            exit 1
+          fi
+
+      # --no-allow-unauthenticated removes any public binding; --invoker-iam-check turns the
+      # Invoker check back on in case someone disabled it. The service stays private.
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy note-summariser \
             --image "$IMAGE" \
-            --region "${{ vars.GCP_REGION }}" \
-            --service-account "${{ vars.RUNTIME_SERVICE_ACCOUNT }}" \
-            --set-env-vars "GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}" \
-            --no-allow-unauthenticated
+            --region "$REGION" \
+            --service-account "$RUNTIME_SA" \
+            --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT" \
+            --no-allow-unauthenticated \
+            --invoker-iam-check

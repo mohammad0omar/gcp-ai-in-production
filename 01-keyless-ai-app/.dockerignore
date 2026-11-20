@@ -1,0 +1,7 @@
+gha-creds-*.json
+.git
+.github-example
+terraform
+tests
+__pycache__
+.env
