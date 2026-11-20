@@ -18,9 +18,17 @@ jobs:
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
       - name: Check every folder that has tests
         run: |
+          failed=""
           for tests in */tests; do
             folder="${tests%/tests}"
             echo "::group::$folder"
-            scripts/check_folder.sh "$folder"
+            if ! scripts/check_folder.sh "$folder"; then
+              failed="$failed $folder"
+              echo "::error::$folder failed"
+            fi
             echo "::endgroup::"
           done
+          if [ -n "$failed" ]; then
+            echo "Failed folders:$failed"
+            exit 1
+          fi

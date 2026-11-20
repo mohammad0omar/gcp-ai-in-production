@@ -38,6 +38,8 @@ def test_summarise_bad_request_is_502(monkeypatch):
 
 def test_missing_project_fails_at_startup(monkeypatch):
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    # Credentials exist; only the project is missing. Do not depend on local ADC.
+    monkeypatch.setattr(main.google.auth, "default", lambda scopes=None: (object(), None))
     import pytest
 
     with pytest.raises(RuntimeError), TestClient(main.app):
