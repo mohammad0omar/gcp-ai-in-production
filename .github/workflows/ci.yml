@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.12"
+      - uses: hashicorp/setup-terraform@v4
+      - name: Check every folder that has tests
+        run: |
+          for tests in */tests; do
+            folder="${tests%/tests}"
+            echo "::group::$folder"
+            scripts/check_folder.sh "$folder"
+            echo "::endgroup::"
+          done
